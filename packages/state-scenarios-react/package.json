@@ -1,0 +1,44 @@
+{
+  "name": "state-scenarios-react",
+  "version": "0.0.0",
+  "description": "useScenarioState: connect React (or Preact) component state to state-scenarios.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jagreehal/state-scenarios",
+    "directory": "packages/state-scenarios-react"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "source": "./src/index.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.json --noEmit false --declaration --emitDeclarationOnly --outDir dist",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "state-scenarios": "0.x",
+    "react": ">=18",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.3.0",
+    "react": "19.3.0",
+    "state-scenarios": "workspace:*",
+    "tsup": "^8.5.1",
+    "typescript": "7.0.2",
+    "zod": "4.6.5"
+  }
+}
