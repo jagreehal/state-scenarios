@@ -1,0 +1,53 @@
+{
+  "name": "state-scenarios-cli",
+  "version": "0.0.0",
+  "description": "state-scenarios CLI: validate, list, screenshot (shoot) and AI-suggest scenarios.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jagreehal/state-scenarios",
+    "directory": "packages/state-scenarios-cli"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "state-scenarios": "./dist/cli.js"
+  },
+  "exports": {
+    "./suggest": {
+      "types": "./dist/suggest.d.ts",
+      "source": "./src/suggest.ts",
+      "import": "./dist/suggest.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup && tsc -p tsconfig.json --noEmit false --declaration --emitDeclarationOnly --outDir dist",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
+    "ajv": "^8.20.0",
+    "state-scenarios": "workspace:^",
+    "zod": "4.6.5"
+  },
+  "peerDependencies": {
+    "@playwright/test": ">=1.40"
+  },
+  "peerDependenciesMeta": {
+    "@playwright/test": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "^24.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "7.0.2"
+  }
+}

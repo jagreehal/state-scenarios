@@ -1,0 +1,48 @@
+{
+  "name": "state-scenarios-workspace",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "turbo run build --filter=./packages/*",
+    "typecheck": "turbo run typecheck && tsc -p tsconfig.json",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "test:e2e:update": "playwright test --update-snapshots",
+    "state-scenarios": "node packages/state-scenarios-cli/dist/cli.js",
+    "schema": "pnpm build && pnpm --filter demo-react schema",
+    "changeset": "changeset",
+    "version-packages": "changeset version && pnpm install --lockfile-only",
+    "release": "pnpm build && changeset publish",
+    "lint": "oxlint --tsconfig tsconfig.json --deny-warnings && dprint check",
+    "lint:fix": "oxlint --tsconfig tsconfig.json --deny-warnings --fix; dprint fmt",
+    "format": "dprint fmt",
+    "quality": "pnpm build && pnpm lint && pnpm typecheck && pnpm test && pnpm test:e2e"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
+    "@changesets/cli": "^3.0.3",
+    "@oxlint/plugins": "1.86.0",
+    "@playwright/test": "1.63.0",
+    "@tanstack/react-query": "5.104.1",
+    "@types/node": "^24.19.1",
+    "ajv": "8.20.0",
+    "dprint": "0.60.1",
+    "msw": "3.0.2",
+    "oxlint": "1.86.0",
+    "oxlint-tsgolint": "7.0.2003",
+    "redux": "5.0.1",
+    "state-scenarios": "workspace:*",
+    "state-scenarios-cli": "workspace:*",
+    "turbo": "^2.5.0",
+    "typescript": "7.0.2",
+    "vite": "8.3.2",
+    "vitest": "5.0.3",
+    "xstate": "5.33.2",
+    "zod": "4.6.5",
+    "zustand": "5.0.15"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@12.9.1"
+}

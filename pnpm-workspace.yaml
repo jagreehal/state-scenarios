@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+  - "examples/*"
+
+allowBuilds:
+  dprint: true
+  esbuild: true
+
+# Same supply-chain policy locally and in CI: skip versions published in the last day.
+minimumReleaseAge: 1440
