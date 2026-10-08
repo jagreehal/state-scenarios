@@ -1,0 +1,2 @@
+# Installs on its own with `pnpm install` in this folder.
+packages: []

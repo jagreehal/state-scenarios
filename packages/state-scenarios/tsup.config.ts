@@ -11,6 +11,7 @@ export default defineConfig({
     'src/adapters/zustand.ts',
     'src/adapters/redux.ts',
     'src/adapters/xstate.ts',
+    'src/adapters/cookies.ts',
   ],
   format: ['esm'],
   target: 'es2022',

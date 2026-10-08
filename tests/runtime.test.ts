@@ -206,6 +206,35 @@ describe('adapters that only apply on a reload', () => {
   });
 });
 
+describe('state a link must not set (fromLinks: false)', () => {
+  const tracked = (applied: string[]): TypedAdapter<string> => ({
+    key: 'token',
+    schema: z.string(),
+    fromLinks: false,
+    apply: (t) => void applied.push(t),
+  });
+
+  it('applies from a catalog scenario', async () => {
+    browser('http://app.test/?scenario=signed-in');
+    const applied: string[] = [];
+    await startScenarios({
+      scenarios: [{ name: 'signed-in', state: { token: 'real' } }],
+      adapters: [tracked(applied)],
+    });
+    expect(applied).toEqual(['real']);
+  });
+
+  it('is ignored from an inline link, which anyone can write', async () => {
+    const data = JSON.stringify({ name: 'evil', state: { token: 'attacker' } });
+    browser(`http://app.test/#${new URLSearchParams({ 'scenario-data': data })}`);
+    const applied: string[] = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const session = await startScenarios({ scenarios: [], adapters: [tracked(applied)] });
+    expect(session.active?.name).toBe('evil');
+    expect(applied).toEqual([]);
+  });
+});
+
 describe('destroy() during and across sessions', () => {
   it('a switch in flight when the session is destroyed never commits', async () => {
     browser('http://app.test/?scenario=one');

@@ -1,6 +1,8 @@
 packages:
   - "packages/*"
   - "examples/*"
+  # Has its own pnpm-workspace.yaml and install.
+  - "!examples/docs-walkthrough"
 
 allowBuilds:
   dprint: true

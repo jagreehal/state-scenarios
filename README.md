@@ -37,6 +37,7 @@ A **scenario** is a JSON file that describes one application state: what the API
 | Field                 | Meaning                                                                                                                                                                                                                                                       | Inherited through `extends`?                                                                           |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `network[]`           | `method`, `path` (MSW syntax, `:params`), optional `query`, then one of `response`, `sequence` or `remove: true`. A response sends `body` as JSON or `text` as text (an HTML error page, say). `delay: "infinite"` holds the request open for loading states. | A child entry **replaces** the parent's entry with the same method, path and query. `remove` drops it. |
+| `path`                | App route the scenario opens at, e.g. `/orders/42`. Links, the panel, `shoot` and `openInlineScenario` go there; "Save as scenario" records the current route.                                                                                                | Yes.                                                                                                   |
 | `url`                 | Query params the app starts with. Params already in the URL win, so a reload keeps in-app navigation.                                                                                                                                                         | Merged; `null` removes a param.                                                                        |
 | `state`               | Per-adapter state, as JSON. Reach for it when the network can't produce a state.                                                                                                                                                                              | Deep-merged; `null` removes a key.                                                                     |
 | `ready`               | A Playwright selector that turns visible once the UI shows this state. Tests, `shoot` and agents wait for it.                                                                                                                                                 | No. Each state renders differently.                                                                    |
@@ -71,7 +72,7 @@ if (import.meta.env.DEV) {
   });
   mountPanel(session);
 }
-// then render the app
+// then create the router and render the app: routers read the URL once, when created
 ```
 
 State that lives inside a component (`useReducer`, `useState`, `useMachine`) connects with one hook. The Preact example wires both of its state engines this way:
@@ -131,15 +132,16 @@ The page reloads instead when:
 
 ### Adapters
 
-| Import                           | State key                                        | Wiring                                                                                                                  |
-| -------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `state-scenarios-react`          | yours                                            | `useScenarioState(key, state, apply, schema?)` in a component                                                           |
-| `state-scenarios/tanstack-query` | `tanstack-query`: `[{ queryKey, data, stale? }]` | `tanstackQuery(queryClient)`                                                                                            |
-| `state-scenarios/zustand`        | `zustand`: partial state                         | `zustandAdapter(store, { schema: StoreSchema.partial() })`                                                              |
-| `state-scenarios/redux`          | `redux`: deep-merged                             | wrap the root reducer with `withScenarioState(reducer, StateSchema)`, then `reduxAdapter(store)`                        |
-| `state-scenarios/xstate`         | `xstate`: `{ value, context }`                   | `const xs = xstateAdapter(machine, { context: ContextSchema })`, then `createActor(machine, { snapshot: xs.snapshot })` |
+| Import                           | State key                                        | Wiring                                                                                                                    |
+| -------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| `state-scenarios-react`          | yours                                            | `useScenarioState(key, state, apply, schema?)` in a component                                                             |
+| `state-scenarios/tanstack-query` | `tanstack-query`: `[{ queryKey, data, stale? }]` | `tanstackQuery(queryClient)`                                                                                              |
+| `state-scenarios/zustand`        | `zustand`: partial state                         | `zustandAdapter(store, { schema: StoreSchema.partial() })`                                                                |
+| `state-scenarios/redux`          | `redux`: deep-merged                             | wrap the root reducer with `withScenarioState(reducer, StateSchema)`, then `reduxAdapter(store)`                          |
+| `state-scenarios/xstate`         | `xstate`: `{ value, context }`                   | `const xs = xstateAdapter(machine, { context: ContextSchema })`, then `createActor(machine, { snapshot: xs.snapshot })`   |
+| `state-scenarios/cookies`        | `cookies`: `{ name: value }`                     | `cookiesAdapter()`. Set before render, so cookie auth gates let the scenario in; overwrites real cookies of the same name |
 
-Scenario state is JSON, and your app's types aren't. A schema bridges them: a `TypedAdapter` has `{ key, schema, apply(state: T) }` and receives decoded state, while a `JsonAdapter` has `{ key, apply(state: Json) }` and receives the JSON as written. Both can add `read()`, which returns the live state as JSON for the panel, and `subscribe(onChange)`. Zustand, Redux and XState require a schema because a store's type can't come from JSON on trust.
+Scenario state is JSON, and your app's types aren't. A schema bridges them: a `TypedAdapter` has `{ key, schema, apply(state: T) }` and receives decoded state, while a `JsonAdapter` has `{ key, apply(state: Json) }` and receives the JSON as written. Both can add `read()`, which returns the live state as JSON for the panel, and `subscribe(onChange)`. Set `fromLinks: false` on an adapter whose state outlives the scenario, such as a cookie the real backend reads. Catalog scenarios then set it and inline links (`#scenario-data=`) skip it. The cookies adapter does this. Zustand, Redux and XState require a schema because a store's type can't come from JSON on trust.
 
 Pass adapters that exist before render to `startScenarios`. Connect the rest later with `session.connect(adapter)`, which returns `{ update, disconnect }` for state you push rather than read. A schema also feeds `scenarioJsonSchema({ state })`, so editors know each adapter's shape (see `examples/demo-react/schema.ts`).
 
@@ -156,6 +158,8 @@ await openScenario(page, 'server-error');
 await openInlineScenario(page, { name: 'one-off', extends: 'default', url: { q: 'Fr' } });
 expect(await unhandledRequests(page)).toEqual([]);
 ```
+
+`{ path: '/orders/42' }` opens a route. `{ panel: false }` hides the dev panel before the app renders, for screenshots and videos in product docs; a later `openScenario` without it shows the panel again. [`examples/docs-walkthrough`](examples/docs-walkthrough) builds Markdown, GIFs and video from scenarios with [executable-stories](https://www.npmjs.com/package/executable-stories-playwright).
 
 ## CLI
 

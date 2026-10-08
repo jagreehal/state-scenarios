@@ -22,6 +22,11 @@ interface AdapterBase {
   subscribe?(onChange: () => void): () => void;
   /** False when new state only takes effect on a reload, e.g. a snapshot an actor starts from. */
   inPlace?: boolean;
+  /**
+   * False to apply this state from catalog scenarios only, and skip it for inline links.
+   * For state that outlives the scenario, such as a cookie the real backend reads.
+   */
+  fromLinks?: boolean;
 }
 
 /** Decodes scenario JSON with `schema`, so `apply` receives typed state. */
@@ -121,6 +126,7 @@ interface Bound {
   read(): Json | undefined;
   subscribe(onChange: () => void): (() => void) | undefined;
   inPlace: boolean;
+  fromLinks: boolean;
 }
 
 function bind<T>(adapter: Adapter<T>): Bound {
@@ -129,6 +135,7 @@ function bind<T>(adapter: Adapter<T>): Bound {
     read: () => adapter.read?.(),
     subscribe: (onChange) => adapter.subscribe?.(onChange),
     inPlace: adapter.inPlace !== false,
+    fromLinks: adapter.fromLinks !== false,
     decode(state, scenario) {
       if (adapter.schema === undefined) return () => adapter.apply(state);
       const parsed = adapter.schema.safeParse(state);
@@ -194,12 +201,23 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   const appHandlers = options.worker ? [...options.worker.listHandlers()] : [];
   let destroyed = false;
 
+  // Whether the active scenario came from an inline link.
+  let fromLink = false;
+
   /** Validate every adapter's state up front, so nothing changes if any of it is invalid. */
-  const prepareStates = (resolved: Scenario, adapters: Bound[]) =>
+  const prepareStates = (resolved: Scenario, adapters: Bound[], link = fromLink) =>
     adapters.flatMap((adapter) => {
       const state = resolved.state?.[adapter.key];
 
-      return state === undefined ? [] : [adapter.decode(state, resolved.name)];
+      if (state === undefined) return [];
+
+      if (link && !adapter.fromLinks) {
+        console.warn(`[state-scenarios] ignored state.${adapter.key}: a link can't set it`);
+
+        return [];
+      }
+
+      return [adapter.decode(state, resolved.name)];
     });
 
   const applyPrepared = async (prepared: ReturnType<typeof prepareStates>) => {
@@ -228,7 +246,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
         rule instanceof RegExp ? rule.test(request.url) : request.url.includes(rule)
       );
 
-      if (isPage || msw.isCommonAssetRequest(request) || pathname.startsWith('/@') || allowed) {
+      if (isPage || isAsset(request.url) || pathname.startsWith('/@') || allowed) {
         return msw.passthrough();
       }
 
@@ -265,7 +283,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     worker = ownWorker = started;
   };
 
-  const activate = (active: Scenario, resolved: Scenario) => {
+  const activate = (active: Scenario, resolved: Scenario, link: boolean) => {
+    fromLink = link;
     session.active = active;
     session.resolved = resolved;
     // Tests and agents wait on these: html[data-scenario="name"], then the ready selector.
@@ -283,22 +302,23 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   const switchTo = async (next: Scenario, inline: boolean) => {
     const resolved = catalog.resolve(next);
     // Validate before choosing reload or in place: a rejected switch must leave the app as it was.
-    const prepared = prepareStates(resolved, boundAdapters());
+    const prepared = prepareStates(resolved, boundAdapters(), inline);
 
     const prev = session.resolved;
     const nextKeys = Object.keys(resolved.state ?? {});
     // Opening a scenario always restarts its network: fresh handler sequences, refetched data.
     const mocksNetwork = worker !== null || !!resolved.network?.length || session.strict;
 
+    const href = scenarioHref(resolved, { inline, strict: session.strict });
+
     const inPlace = prev !== null
       // Compare with the app's actual URL: URL-driven UI only resets on a reload.
+      && new URL(href).pathname === location.pathname
       && JSON.stringify(appParams(location.search)) === JSON.stringify(sortedParams(resolved.url))
       && (!mocksNetwork || !!options.refresh)
       // Can't un-apply state, and can't apply state nobody is connected to receive.
       && Object.keys(prev.state ?? {}).every((k) => nextKeys.includes(k))
       && nextKeys.every((k) => connected.get(k)?.adapter.inPlace === true);
-
-    const href = scenarioHref(resolved, { inline, strict: session.strict });
 
     if (!inPlace) {
       navigate(href);
@@ -319,7 +339,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
     if (destroyed) return;
     unhandled.splice(0);
-    activate(next, resolved);
+    activate(next, resolved, inline);
     const at = new URL(href);
     history.replaceState(history.state, '', at);
     const data = readInline(at.hash);
@@ -445,7 +465,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
       const resolved = catalog.resolve(active);
 
-      return { active, resolved, prepared: prepareStates(resolved, initial) };
+      return { active, resolved, prepared: prepareStates(resolved, initial, !!selection.data) };
     } catch (err) {
       store(null);
       throw err;
@@ -467,11 +487,21 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   await applyPrepared(prepared);
 
   if (destroyed) return session;
-  activate(active, resolved);
+  activate(active, resolved, !!selection.data);
   emit();
 
   return session;
 }
+
+/** msw's `isCommonAssetRequest`, inlined so msw 2.4 and later all work. */
+const isAsset = (href: string) => {
+  const url = new URL(href);
+
+  return url.protocol === 'file:' || url.hostname === 'fonts.googleapis.com'
+    || url.pathname.includes('node_modules') || url.pathname.includes('@vite')
+    || /\.(s?css|less|m?jsx?|m?tsx?|html|ttf|otf|woff2?|eot|gif|jpe?g|png|avif|webp|svg|mp4|webm|ogg|mov|mp3|wav|flac|aac|pdf|txt|csv|json|xml|md|zip|tar|gz|rar|7z)$/i
+      .test(url.pathname);
+};
 
 const byKey = ([a]: [string, string | null], [b]: [string, string | null]) => a.localeCompare(b);
 
