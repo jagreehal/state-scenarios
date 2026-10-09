@@ -8,6 +8,8 @@
   "jsPlugins": [{ "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" }],
   "ignorePatterns": [
     "**/dist/**",
+    "**/.next/**",
+    "**/mockServiceWorker.js",
     "**/node_modules/**",
     ".agent/**",
     ".agents/**",

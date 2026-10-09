@@ -15,6 +15,7 @@
     "tests",
     "e2e",
     "examples/demo-react",
+    "examples/auth-flows",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

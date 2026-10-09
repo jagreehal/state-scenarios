@@ -1,6 +1,6 @@
 export { type Catalog, createCatalog, deepMerge, defineScenarioRules, type ScenarioRule } from './catalog.js';
 
-export { DATA_KEY, PARAM, readInline, scenarioHref, STRICT_PARAM } from './link.js';
+export { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
 
 export { toHandlers } from './network.js';
 

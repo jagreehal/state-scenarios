@@ -344,4 +344,28 @@ describe("with the app's own MSW worker", () => {
       server.close();
     }
   });
+
+  it('detaches its recording listeners on destroy', async () => {
+    // Any listener: only identity matters here.
+    type Listener = (e: never) => void;
+
+    const attached = new Set<Listener>();
+
+    const session = await startScenarios({
+      scenarios: [],
+      record: true,
+      worker: {
+        resetHandlers() {},
+        listHandlers: () => [],
+        events: {
+          on: (_event: string, listener: Listener) => void attached.add(listener),
+          removeListener: (_event: string, listener: Listener) => void attached.delete(listener),
+        },
+      },
+    });
+
+    expect(attached.size).toBe(3);
+    session.destroy();
+    expect(attached.size).toBe(0);
+  });
 });

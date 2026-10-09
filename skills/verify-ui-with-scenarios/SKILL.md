@@ -42,7 +42,9 @@ To find gaps, run:
 npx state-scenarios suggest src/scenarios --src src --schema src/scenario.schema.json
 ```
 
-It lists candidate UI states, marks which scenarios cover them, and drafts scenarios for the gaps into `src/scenarios/proposed/`. Review each draft, then move the ones you keep into `src/scenarios/`. It needs `ANTHROPIC_API_KEY`; `--model` with `ANTHROPIC_BASE_URL` targets another Anthropic-compatible endpoint.
+It lists candidate UI states, marks which scenarios cover them, and drafts scenarios for the gaps into `src/scenarios/proposed/`. To capture a state from the real backend, open the app with `?scenario-record`, run the flow, and save it from the panel.
+
+Review each draft from `suggest`, then move the ones you keep into `src/scenarios/`. It needs `ANTHROPIC_API_KEY`; `--model` with `ANTHROPIC_BASE_URL` targets another Anthropic-compatible endpoint.
 
 ## 4. In Playwright tests
 

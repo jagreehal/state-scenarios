@@ -10,6 +10,9 @@ export const PARAM = 'scenario';
 /** Fail unmatched requests instead of letting them reach the network. */
 export const STRICT_PARAM = 'scenario-strict';
 
+/** Record real responses so they can be saved as a scenario. */
+export const RECORD_PARAM = 'scenario-record';
+
 /** Inline scenario JSON, kept in the URL hash so it never reaches a server. */
 export const DATA_KEY = 'scenario-data';
 

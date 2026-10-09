@@ -16,6 +16,8 @@ export type Serializable = object | string | number | boolean | null;
  */
 export const parseJson = (text: string): Json => JsonSchema.parse(JSON.parse(text));
 
+export const MethodSchema = z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']);
+
 const ResponseSchema = z
   .object({
     status: z.number().int().default(200),
@@ -33,7 +35,7 @@ const ResponseSchema = z
 
 const NetworkEntrySchema = z
   .object({
-    method: z.enum(['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS']).default('GET'),
+    method: MethodSchema.default('GET'),
     /** MSW path syntax: "/api/users/:id", absolute URLs and wildcards work. */
     path: z.string().min(1),
     /** Only match requests whose query string contains these values. */
