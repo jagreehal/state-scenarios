@@ -1,6 +1,6 @@
 {
   "name": "state-scenarios-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "state-scenarios CLI: validate, list, screenshot (shoot) and AI-suggest scenarios.",
   "license": "MIT",
   "repository": {
