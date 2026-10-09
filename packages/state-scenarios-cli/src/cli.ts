@@ -74,7 +74,11 @@ try {
         description: s.description ?? '',
         tags: s.tags ?? [],
         ready: s.ready ?? null,
-        url: base ? `${base.replace(/\/$/, '')}/?scenario=${encodeURIComponent(s.name)}` : null,
+        url: base
+          ? `${base.replace(/\/$/, '')}${catalog.resolve(s).path ?? '/'}?scenario=${
+            encodeURIComponent(s.name)
+          }`
+          : null,
       }));
 
       if (values.json) console.log(JSON.stringify(rows, null, 2));
@@ -116,7 +120,7 @@ try {
         let error: string | null = null;
 
         try {
-          await openScenario(page, s.name, { strict: !values['no-strict'] });
+          await openScenario(page, s.name, { path: catalog.resolve(s).path, strict: !values['no-strict'] });
         } catch (err) {
           error = err instanceof Error ? err.message.split('\n')[0] : String(err);
         }

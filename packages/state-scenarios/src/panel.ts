@@ -39,7 +39,7 @@ export function mountPanel(session: ScenarioSession, options: PanelOptions = {})
 }
 
 /**
- * Snapshot what the app shows now as a self-contained scenario: current URL params,
+ * Snapshot what the app shows now as a self-contained scenario: current route and URL params,
  * the active network fixtures, and every connected adapter's live state.
  */
 export function captureScenario(session: ScenarioSession, name: string, description?: string): Scenario {
@@ -59,6 +59,7 @@ export function captureScenario(session: ScenarioSession, name: string, descript
   const draft = parseScenario({
     name,
     description: description || undefined,
+    path: location.pathname,
     url,
     network: session.resolved?.network,
     state,

@@ -25,6 +25,8 @@ export function scenarioHref(
   url.search = '';
   url.hash = '';
 
+  if (resolved.path) url.pathname = resolved.path;
+
   for (const [k, v] of Object.entries(resolved.url ?? {})) {
     if (v !== null) url.searchParams.set(k, v);
   }

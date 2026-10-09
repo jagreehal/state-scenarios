@@ -131,6 +131,25 @@ test('reset stays on the same origin when the path starts with //', async ({ pag
   expect(new URL((await reset.getAttribute('href')) ?? '').origin).toBe(baseURL);
 });
 
+for (const handle of [true, false]) {
+  test(`panel: false hides the dev panel, and a later open shows it (addInitScript handle: ${handle})`, async ({ page }) => {
+    if (!handle) {
+      // Older Playwright versions return nothing from addInitScript.
+      const addInitScript = page.addInitScript.bind(page);
+      Object.assign(page, {
+        addInitScript: async (...args: Parameters<typeof addInitScript>) => void await addInitScript(...args),
+      });
+    }
+
+    await openScenario(page, 'default', { panel: false });
+    await expect(page.locator('scenario-panel')).toBeHidden();
+    await openScenario(page, 'empty');
+    await expect(page.locator('scenario-panel')).toBeVisible();
+    await openScenario(page, 'default', { panel: false });
+    await expect(page.locator('scenario-panel')).toBeHidden();
+  });
+}
+
 test('unknown scenario names the known ones', async ({ page }) => {
   await page.goto('/?scenario=nope');
   await expect(page.locator('.fatal')).toContainText('Unknown scenario "nope". Known scenarios: chewbacca');

@@ -48,6 +48,11 @@
       "types": "./dist/adapters/xstate.d.ts",
       "source": "./src/adapters/xstate.ts",
       "import": "./dist/adapters/xstate.js"
+    },
+    "./cookies": {
+      "types": "./dist/adapters/cookies.d.ts",
+      "source": "./src/adapters/cookies.ts",
+      "import": "./dist/adapters/cookies.js"
     }
   },
   "publishConfig": {
@@ -59,7 +64,7 @@
     "typecheck": "tsc --noEmit"
   },
   "peerDependencies": {
-    "msw": "^3.0.0",
+    "msw": "^2.4.0 || ^3.0.0",
     "zod": "^4.1.0",
     "@playwright/test": ">=1.40",
     "@tanstack/react-query": ">=5"

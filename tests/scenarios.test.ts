@@ -5,7 +5,7 @@ import Ajv2020 from 'ajv/dist/2020.js';
 import { setupServer } from 'msw/node';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createStore } from 'redux';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createActor, createMachine } from 'xstate';
 import { z } from 'zod';
 import { createStore as createZustand } from 'zustand/vanilla';
@@ -16,6 +16,7 @@ import {
   type Suggestion,
   suggestScenarios,
 } from '../packages/state-scenarios-cli/src/suggest.ts';
+import { cookiesAdapter } from '../packages/state-scenarios/src/adapters/cookies.ts';
 import { reduxAdapter, withScenarioState } from '../packages/state-scenarios/src/adapters/redux.ts';
 import { tanstackQuery } from '../packages/state-scenarios/src/adapters/tanstack-query.ts';
 import { xstateAdapter } from '../packages/state-scenarios/src/adapters/xstate.ts';
@@ -153,6 +154,18 @@ describe('links', () => {
 
     expect(url.searchParams.has('scenario-strict')).toBe(true);
   });
+
+  it("open the scenario's route, inherited through extends", () => {
+    const catalog = createCatalog([
+      { name: 'order', path: '/orders/42' },
+      { name: 'order-shipped', extends: 'order' },
+    ]);
+
+    const resolved = catalog.resolve(catalog.get('order-shipped')!);
+
+    expect(new URL(scenarioHref(resolved, { base: 'http://app.test/dashboard?x=1' })).pathname)
+      .toBe('/orders/42');
+  });
 });
 
 describe('inline links', () => {
@@ -279,6 +292,25 @@ describe('adapters', () => {
     void client.refetchQueries({ queryKey: ['other'] });
     expect(adapter.read?.()).toContainEqual({ queryKey: ['other'], data: 'x', stale: true });
     expect(adapter.schema.safeParse([{ queryKey: [] }]).success).toBe(false);
+  });
+
+  it('cookies sets and reads document.cookie', () => {
+    const jar = new Map<string, string>();
+    vi.stubGlobal('document', {
+      get cookie() {
+        return [...jar].map(([k, v]) => `${k}=${v}`).join('; ');
+      },
+      set cookie(c: string) {
+        const [pair] = c.split(';');
+        const i = pair.indexOf('=');
+        jar.set(pair.slice(0, i), pair.slice(i + 1));
+      },
+    });
+    const adapter = cookiesAdapter();
+    void adapter.apply(adapter.schema.parse({ AuthToken: 'fake token' }));
+    expect(jar.get('AuthToken')).toBe('fake%20token');
+    expect(adapter.read?.()).toEqual({ AuthToken: 'fake token' });
+    vi.unstubAllGlobals();
   });
 
   it('zustand merges decoded state into the store', async () => {

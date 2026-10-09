@@ -58,6 +58,8 @@ export const ScenarioSchema = z.object({
   tags: z.array(z.string()).optional(),
   /** Scenario name(s) to build on. Later parents override earlier ones. */
   extends: z.union([z.string(), z.array(z.string())]).optional(),
+  /** App route the scenario opens at, e.g. "/orders/42". Used by links, the panel, `shoot` and `openInlineScenario`. */
+  path: z.string().startsWith('/').optional(),
   /** Query params the app should start with. null removes an inherited param. */
   url: z.record(z.string(), z.string().nullable()).optional(),
   /**
