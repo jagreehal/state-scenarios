@@ -55,6 +55,15 @@
       "import": "./dist/adapters/cookies.js"
     }
   },
+  "imports": {
+    "#msw-browser": {
+      "node": {
+        "source": "./src/no-msw-browser.ts",
+        "default": "./dist/no-msw-browser.js"
+      },
+      "default": "msw/browser"
+    }
+  },
   "publishConfig": {
     "access": "public"
   },

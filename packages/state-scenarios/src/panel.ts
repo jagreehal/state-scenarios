@@ -1,10 +1,10 @@
-import { PARAM, readInline, scenarioHref, STRICT_PARAM } from './link.js';
+import { PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
 import type { ScenarioSession } from './runtime.js';
 import { parseScenario, type Scenario } from './schema.js';
 
 const OPEN_KEY = 'scenario-panel:open';
 
-const SCENARIO_PARAMS = new Set([PARAM, STRICT_PARAM]);
+const SCENARIO_PARAMS = new Set([PARAM, STRICT_PARAM, RECORD_PARAM]);
 
 export interface PanelOptions {
   /** Corner to dock in, e.g. to avoid a chat widget. Default "bottom-right". */
@@ -56,19 +56,26 @@ export function captureScenario(session: ScenarioSession, name: string, descript
     }),
   );
 
+  // Recorded responses go after the scenario's own: they answered requests it didn't mock.
+  const network = [...(session.resolved?.network ?? []), ...session.recorded()];
+
   const draft = parseScenario({
     name,
     description: description || undefined,
     path: location.pathname,
     url,
-    network: session.resolved?.network,
+    network: network.length ? network : undefined,
     state,
   });
 
   return session.catalog.resolve(draft); // runs the rules
 }
 
-class ScenarioPanel extends HTMLElement {
+// Next.js loads client modules on the server too, where HTMLElement is undefined. Only
+// mountPanel creates a panel, and it runs in a browser, so on the server any base will do.
+const Base: typeof HTMLElement = globalThis.HTMLElement ?? Object;
+
+class ScenarioPanel extends Base {
   session!: ScenarioSession;
   private render?: () => void;
   private unsubscribe?: () => void;
@@ -247,13 +254,15 @@ class ScenarioPanel extends HTMLElement {
     const saved = find('.saved', HTMLInputElement);
     const capture = () => captureScenario(session, saveName.value.trim(), saveDescription.value.trim());
     find('[data-act=save-link]', HTMLButtonElement).onclick = run(async () => {
+      await session.settleRecording();
       const link = scenarioHref(capture(), { inline: true, strict: session.strict });
       saved.hidden = false;
       saved.value = link;
       saved.select();
       await navigator.clipboard?.writeText(link).catch(() => {});
     });
-    find('[data-act=save-json]', HTMLButtonElement).onclick = run(() => {
+    find('[data-act=save-json]', HTMLButtonElement).onclick = run(async () => {
+      await session.settleRecording();
       const scenario = capture();
       const a = document.createElement('a');
       a.href = URL.createObjectURL(
@@ -317,8 +326,9 @@ class ScenarioPanel extends HTMLElement {
     let shownScenario: string | undefined;
 
     const render = () => {
-      const { active, strict, unhandled } = session;
-      toggle.innerHTML = `Scenario: <b>${esc(active?.name ?? 'none')}</b>${strict ? ' (strict)' : ''}`;
+      const { active, strict, unhandled, recording } = session;
+      const mode = recording ? ` (recording ${session.recorded().length})` : strict ? ' (strict)' : '';
+      toggle.innerHTML = `Scenario: <b>${esc(active?.name ?? 'none')}</b>${mode}`;
       const names = (active?.name ?? '').split(',');
       root.querySelectorAll<HTMLLIElement>('li[data-name]').forEach((li) => {
         const a = li.querySelector('a')!;
@@ -326,7 +336,8 @@ class ScenarioPanel extends HTMLElement {
         if (names.includes(li.dataset.name!)) a.setAttribute('aria-current', 'true');
         else a.removeAttribute('aria-current');
       });
-      find('.unmocked', HTMLElement).innerHTML = unhandled.length
+      // While recording, unmocked requests are the point: they're what gets saved.
+      find('.unmocked', HTMLElement).innerHTML = unhandled.length && !recording
         ? `<p>${unhandled.length} request(s) not covered by this scenario${
           strict ? ' (answered 501)' : ''
         }:</p>

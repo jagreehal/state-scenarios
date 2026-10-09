@@ -40,6 +40,7 @@ Create `src/scenarios/*.json`. Start with a `default` scenario that mocks every 
 - `response.body` sends JSON; `response.text` sends text. `delay: "infinite"` holds a request open for loading states. `sequence` returns successive responses (fail, then succeed on retry).
 - A child's network entry replaces the parent's entry with the same method, path and query; `"remove": true` drops it. In `url` and `state`, `null` removes an inherited key.
 - Set `ready` to a Playwright selector that only appears once the state renders. Tests and `shoot` wait for it.
+- To capture real responses, open the app with `?scenario-record`, click through the flow against the real backend, then use the panel's "Save as scenario". The saved file mocks every JSON call you made, with repeated calls as a `sequence`.
 
 ## 3. Start the runtime before render
 
@@ -60,7 +61,7 @@ if (import.meta.env.DEV) {
 }
 ```
 
-Keep the `import.meta.env.DEV` guard so production bundles skip the runtime. Pass `refresh` whenever scenarios mock the network, so switching happens without a reload. If the app already runs MSW, pass its started worker as `worker`.
+Keep the `import.meta.env.DEV` guard so production bundles skip the runtime. In Next.js (App Router), start the runtime from a `'use client'` wrapper in the root layout instead, and render children once it resolves; the README's Next.js section has the component. Pass `refresh` whenever scenarios mock the network, so switching happens without a reload. If the app already runs MSW, pass its started worker as `worker`.
 
 ## 4. Connect app state
 

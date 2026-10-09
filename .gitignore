@@ -3,3 +3,9 @@ dist/
 test-results/
 playwright-report/
 .turbo/
+.next/
+next-env.d.ts
+.DS_Store
+*.tsbuildinfo
+examples/next-app/AGENTS.md
+examples/next-app/CLAUDE.md

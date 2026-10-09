@@ -94,6 +94,44 @@ The MSW Vite plugin serves the worker: `msw({ mode: 'worker-only' })` (see `exam
 
 **Panel options:** `mountPanel(session, { position: 'bottom-left', zIndex: 1000, theme: 'dark' })`. Pick a corner that keeps clear of chat widgets. `theme` defaults to `auto`, which follows the OS.
 
+### Next.js (App Router)
+
+state-scenarios runs in the browser, so in Next.js it covers **client** state only: the panel, `?scenario=` links, `url` params, cookies and `useScenarioState`. Server components and server actions run on the server, where MSW can't see them, so `network[]` mocks only `fetch` calls made from client components. To feed server-rendered data from a scenario, pass the data or action in as a prop and swap it in dev.
+
+Start the session from a client component that wraps the app in your root layout (`<Scenarios>{children}</Scenarios>`). It holds the app back until the session has started, so the first client fetches already hit the scenario's mocks. `examples/next-app` is the working version.
+
+```tsx
+'use client';
+import serverError from '@/scenarios/server-error.json'; // no import.meta.glob: list them
+import { type ReactNode, useEffect, useState } from 'react';
+import { ScenarioSchema, startScenarios } from 'state-scenarios';
+import { cookiesAdapter } from 'state-scenarios/cookies';
+import { mountPanel } from 'state-scenarios/panel';
+
+// Imported JSON widens literals (`"GET"` becomes string): parse it into a typed scenario.
+const scenarios = [serverError].map((s) => ScenarioSchema.parse(s));
+const dev = process.env.NODE_ENV === 'development';
+let started: Promise<void> | undefined; // Strict Mode runs effects twice
+
+export function Scenarios({ children }: { children: ReactNode; }) {
+  const [ready, setReady] = useState(!dev);
+
+  useEffect(() => {
+    if (!dev) return;
+    started ??= startScenarios({ scenarios, adapters: [cookiesAdapter()] }).then((s) => {
+      mountPanel(s);
+    });
+    void started.then(() => setReady(true));
+  }, []);
+
+  return ready ? children : null;
+}
+```
+
+- In development the app renders after hydration, once the session has started, so the server-rendered HTML never shows the scenario. Cookies reach server components on the next request (`router.refresh()` or a reload).
+- `url` params reach `useSearchParams` straight away; server components see them after a reload.
+- If client components `fetch`, run `npx msw init public` so the worker is served from `/mockServiceWorker.js`.
+
 ### Selecting a scenario
 
 - `?scenario=<name>` opens a catalog scenario. `?scenario=a,b` combines several; later names win, as with `extends`.
@@ -127,6 +165,8 @@ The page reloads instead when:
 - Requests the scenario didn't cover appear in the panel.
 
 **Strict mode** (`strict: true`, or `?scenario-strict`, which links and in-place switches keep) answers any request the scenario doesn't cover with a 501, so it never reaches a real backend. Assets and page loads pass; list deliberate live requests in `allow`. `unhandledRequests(page)` returns the uncovered requests in either mode. `openScenario` and `openInlineScenario` run strict by default.
+
+**Recording** (`record: true`, or `?scenario-record`) lets requests reach your real backend and records every JSON response. Use the app, then click **Save as scenario**: the saved scenario carries the recorded responses as `network` entries, so it replays offline. Repeated calls to one endpoint become a `sequence` in call order, so "wrong code, then right code" replays as it happened. The saved scenario keeps the active scenario's mocks and adds the recorded responses after them. The panel button shows the recorded count. `examples/auth-flows` records a sign-in against a stand-in backend and replays it in strict mode.
 
 **Readiness:** the session sets `<html data-scenario="name" data-scenario-ready="selector">` once the scenario is active and async adapters have finished. The Playwright helpers wait for both, so a screenshot captures the state itself, deliberate loading states included.
 
@@ -188,6 +228,8 @@ Vue and Svelte hooks would be sibling packages (`state-scenarios-vue`, `state-sc
 ## Examples
 
 - **`examples/who-speaks-what-preact/`** runs on Preact 11, XState 5, preact-iso and Tailwind 4. The same page state lives in a `useReducer` (`/`) and an XState machine (`/xstate`); each route connects with one `useScenarioState` call and a Zod schema, and `src/scenarios.ts` defines its page presets as scenarios. It mocks no network, so MSW never loads.
+- **`examples/auth-flows/`** covers sign-in: password, a code sent by email, magic links, a locked account, skipping login with a session cookie, and an expired session. No email is sent: each scenario mocks the API calls around it. `code-screen` opens on the code step through `useScenarioState`. A Vite middleware stands in for the real backend (the code is `123456`), so `?scenario-record` has something real to record. **Sign in with Google** runs the real OAuth redirect flow against [emulate](https://emulate.dev)'s Google emulator, which the middleware starts. A redirect to another origin is a page load MSW can't intercept, so an emulator covers the flow itself. Scenarios still cover the screens around it, such as `google-cancelled`. `emulate` is a dev dependency of this example only.
+- **`examples/next-app/`** runs the session in a Next.js App Router layout: client fetches, URL params and cookies.
 - **`examples/demo-react/`** rebuilds the same app in React around an API. Its 13 scenario files cover network fixtures, sequences, cache seeding, strict mode and inheritance.
 
 ## Agent skills

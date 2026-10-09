@@ -15,5 +15,16 @@ export default defineConfig({
       url: 'http://localhost:5180',
       reuseExistingServer: true,
     },
+    {
+      command: 'pnpm --filter next-app exec next dev --port 5181',
+      url: 'http://localhost:5181',
+      reuseExistingServer: true,
+    },
+    {
+      // Sign-in flows, with a stand-in backend to record.
+      command: 'pnpm --filter auth-flows exec vite --port 5182 --strictPort',
+      url: 'http://localhost:5182',
+      reuseExistingServer: true,
+    },
   ],
 });

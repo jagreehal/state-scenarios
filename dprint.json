@@ -13,6 +13,9 @@
   },
   "excludes": [
     "**/dist",
+    "**/.next",
+    "**/next-env.d.ts",
+    "**/mockServiceWorker.js",
     "**/node_modules",
     "**/test-results",
     "**/playwright-report",

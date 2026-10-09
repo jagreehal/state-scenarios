@@ -1,9 +1,11 @@
 import type { SetupWorker } from 'msw/browser';
 import type { z } from 'zod';
 import { type Catalog, createCatalog, type ScenarioRule } from './catalog.js';
-import { DATA_KEY, PARAM, readInline, scenarioHref, STRICT_PARAM } from './link.js';
+import { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
+import { createRecorder } from './record.js';
 import {
   type Json,
+  type NetworkEntry,
   parseJson,
   parseScenario,
   type Scenario,
@@ -64,6 +66,11 @@ export interface StartOptions {
    * Assets and page loads always pass. Also switched on by `?scenario-strict`.
    */
   strict?: boolean;
+  /**
+   * Let unmatched requests reach the real network and record their JSON responses, so
+   * "Save as scenario" can replay them offline. Also switched on by `?scenario-record`.
+   */
+  record?: boolean;
   /** Requests that may reach the network in strict mode (URL substring or RegExp). */
   allow?: (string | RegExp)[];
   /**
@@ -81,8 +88,22 @@ export interface StartOptions {
   workerOptions?: Parameters<SetupWorker['start']>[0];
 }
 
-/** The parts of an MSW worker or server state-scenarios uses. */
-export type MswWorker = Pick<SetupWorker, 'resetHandlers' | 'listHandlers'>;
+/** The parts of an MSW worker or server state-scenarios uses. `events` is needed to record. */
+export type MswWorker = Pick<SetupWorker, 'resetHandlers' | 'listHandlers'> & {
+  events?: Pick<RecordingEvents, 'on' | 'removeListener'>;
+};
+
+type StartListener = (e: { requestId: string; }) => void;
+
+type ResponseListener = (e: { requestId: string; request: Request; response: Response; }) => void;
+
+/** MSW's lifecycle events that recording listens to, as both MSW 2 and 3 type them. */
+interface RecordingEvents {
+  on(event: 'request:start', listener: StartListener): void;
+  on(event: 'response:mocked' | 'response:bypass', listener: ResponseListener): void;
+  removeListener(event: 'request:start', listener: StartListener): void;
+  removeListener(event: 'response:mocked' | 'response:bypass', listener: ResponseListener): void;
+}
 
 export interface ScenarioSession {
   catalog: Catalog;
@@ -93,6 +114,12 @@ export interface ScenarioSession {
   strict: boolean;
   /** Non-asset requests no scenario entry matched (live list). */
   unhandled: string[];
+  /** Whether real responses are being recorded (`record` or `?scenario-record`). */
+  recording: boolean;
+  /** Real responses recorded so far, as network entries. Await `settleRecording()` first for all of them. */
+  recorded(): NetworkEntry[];
+  /** Resolves once every recorded response body has been read. */
+  settleRecording(): Promise<void>;
   /** Keys of connected adapters. */
   keys(): string[];
   /** The connected adapter's current state, as JSON. */
@@ -195,6 +222,40 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     }
   };
 
+  const recorder = createRecorder();
+  // Set while recording listeners are attached; removes them.
+  let stopListening: (() => void) | null = null;
+
+  const listen = (target: MswWorker) => {
+    if (!session.recording || stopListening) return;
+
+    if (!target.events) {
+      console.warn('[state-scenarios] recording needs a worker with `events`');
+
+      return;
+    }
+
+    const { events } = target;
+    // Positions are taken when requests start, so a slow response keeps its place.
+    const start: StartListener = ({ requestId }) => recorder.start(requestId);
+    const mocked: ResponseListener = ({ requestId }) => recorder.drop(requestId);
+
+    const bypass: ResponseListener = ({ requestId, request, response }) => {
+      void recorder.bypass(requestId, request, response).then(emit);
+    };
+
+    events.on('request:start', start);
+    events.on('response:mocked', mocked);
+    events.on('response:bypass', bypass);
+
+    stopListening = () => {
+      events.removeListener('request:start', start);
+      events.removeListener('response:mocked', mocked);
+      events.removeListener('response:bypass', bypass);
+      stopListening = null;
+    };
+  };
+
   // The app's worker, if given, else one this session starts on first need.
   let worker: MswWorker | null = options.worker ?? null;
   let ownWorker: SetupWorker | null = null;
@@ -232,7 +293,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
   // MSW loads only when a scenario mocks the network or strict mode needs a catch-all.
   const setNetwork = async (resolved: Scenario) => {
-    if (!resolved.network?.length && !session.strict && !worker) return;
+    if (!resolved.network?.length && !session.strict && !session.recording && !worker) return;
     const [{ toHandlers }, msw] = await Promise.all([import('./network.js'), import('msw')]);
 
     if (destroyed) return;
@@ -265,11 +326,12 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
     if (worker) {
       worker.resetHandlers(...handlers);
+      listen(worker);
 
       return;
     }
 
-    const { setupWorker } = await import('msw/browser');
+    const { setupWorker } = await import('#msw-browser');
     const started = setupWorker(...handlers);
     await started.start({ quiet: true, ...options.workerOptions });
 
@@ -281,6 +343,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     }
 
     worker = ownWorker = started;
+    listen(started);
   };
 
   const activate = (active: Scenario, resolved: Scenario, link: boolean) => {
@@ -341,7 +404,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     unhandled.splice(0);
     activate(next, resolved, inline);
     const at = new URL(href);
-    history.replaceState(history.state, '', at);
+    replaceUrl(at);
     const data = readInline(at.hash);
     store(data ? { data, strict: session.strict } : { name: next.name, strict: session.strict });
     emit();
@@ -384,6 +447,10 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     resolved: null,
     strict: options.strict ?? !!selection?.strict,
     unhandled,
+    // Held in memory: a full page load starts a new recording.
+    recording: options.record ?? url.searchParams.has(RECORD_PARAM),
+    recorded: recorder.entries,
+    settleRecording: recorder.settled,
     keys: () => [...connected.keys()],
     read(key) {
       const entry = connected.get(key);
@@ -430,6 +497,9 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       connected.clear();
       listeners.clear();
 
+      // An app-owned worker outlives the session: detach from it.
+      stopListening?.();
+
       if (ownWorker) void ownWorker.stop();
       else worker?.resetHandlers(...appHandlers);
       worker = ownWorker = null;
@@ -454,7 +524,12 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
   for (const adapter of initial) attach(adapter);
 
-  if (!selection) return session;
+  if (!selection) {
+    // Nothing to mock, but recording needs the worker to see the real responses.
+    if (session.recording) await setNetwork({ name: 'live' });
+
+    return session;
+  }
 
   // A selection that doesn't load must not stick to the tab and break every later page load.
   const loaded = (() => {
@@ -482,7 +557,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     if (v !== null && !url.searchParams.has(k)) url.searchParams.set(k, v);
   }
 
-  history.replaceState(history.state, '', url);
+  replaceUrl(url);
   // Apply (awaiting async adapters) before the app renders.
   await applyPrepared(prepared);
 
@@ -503,6 +578,15 @@ const isAsset = (href: string) => {
       .test(url.pathname);
 };
 
+// Keeps the router's history state. Next.js ignores replaceState calls whose state carries its
+// own marker (__NA), so drop that marker: Next then re-adds its state and updates useSearchParams.
+const replaceUrl = (url: URL) => {
+  const state: unknown = history.state;
+  const { __NA, ...rest }: { __NA?: unknown; } = Object(state);
+
+  history.replaceState(__NA === undefined ? state : rest, '', url);
+};
+
 const byKey = ([a]: [string, string | null], [b]: [string, string | null]) => a.localeCompare(b);
 
 /** The app's own query params (scenario params excluded), sorted for comparison. */
@@ -517,7 +601,7 @@ export function navigate(href: string) {
   const next = new URL(href, location.href);
 
   if (next.pathname + next.search === location.pathname + location.search) {
-    history.replaceState(history.state, '', next);
+    replaceUrl(next);
     location.reload();
   } else {
     location.href = next.toString();
