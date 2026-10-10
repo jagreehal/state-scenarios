@@ -1,3 +1,4 @@
+import { SAVE_ENDPOINT } from './link.js';
 import { type Json, MethodSchema, type NetworkEntry, parseJson } from './schema.js';
 
 /** One real response, placed by when its request started. */
@@ -33,8 +34,10 @@ export function createRecorder() {
       const order = started.get(requestId) ?? next++;
       started.delete(requestId);
       const method = MethodSchema.safeParse(request.method);
+      // The panel's own save calls aren't part of the app's traffic.
+      const own = new URL(request.url).pathname.startsWith(SAVE_ENDPOINT);
 
-      if (!method.success || !response.headers.get('content-type')?.includes('json')) {
+      if (own || !method.success || !response.headers.get('content-type')?.includes('json')) {
         return Promise.resolve();
       }
 

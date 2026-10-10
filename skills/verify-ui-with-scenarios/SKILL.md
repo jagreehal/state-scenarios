@@ -32,19 +32,24 @@ It exits non-zero when any scenario has a problem. Limit a run with `--only name
 
 Open the PNGs for scenarios your change touches, plus loading, empty and error states. Attach the relevant ones to the PR as evidence.
 
-## 3. Cover new states
+## 3. Cover new states (prefer capture)
 
-When the change adds a state (a new error message, an empty list, a permission variant), add a scenario for it, extending an existing one, and give it a `ready` selector. Run `npx state-scenarios validate src/scenarios --rules src/scenario-rules.ts`.
+When the change adds a state, **capture it from the running app**, the same way a person would:
 
-To find gaps, run:
+1. Open the app with `?scenario-record` if you need real network fixtures.
+2. Drive the UI into the state.
+3. Panel → **Save as scenario** → **Mark ready** (or accept a suggestion) and confirm the line under Ready says it matches → choose **Extends** → **Save to src/scenarios** (or **Download JSON** into `src/scenarios/`).
+4. Or, from Playwright/agent code, use `captureScenario`, `diffScenario`, `selectorForElement` and `checkReadySelector` from `state-scenarios` to build the same `{ flat, forCatalog }` shape, then write `forCatalog` to disk.
+5. `npx state-scenarios validate src/scenarios --rules src/scenario-rules.ts`
+
+Use `suggest` for ideas. Its drafts land in `src/scenarios/proposed/` and usually need fixture or `ready` edits:
 
 ```bash
 npx state-scenarios suggest src/scenarios --src src --schema src/scenario.schema.json
+npx state-scenarios promote src/scenarios   # after review; --dry-run to preview
 ```
 
-It lists candidate UI states, marks which scenarios cover them, and drafts scenarios for the gaps into `src/scenarios/proposed/`. To capture a state from the real backend, open the app with `?scenario-record`, run the flow, and save it from the panel.
-
-Review each draft from `suggest`, then move the ones you keep into `src/scenarios/`. It needs `ANTHROPIC_API_KEY`; `--model` with `ANTHROPIC_BASE_URL` targets another Anthropic-compatible endpoint.
+Record + Mark ready gives you real network fixtures. `promote` checks names, resolves each draft and runs the rules before it moves a file.
 
 ## 4. In Playwright tests
 

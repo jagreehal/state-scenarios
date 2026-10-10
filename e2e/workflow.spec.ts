@@ -1,5 +1,8 @@
 import { expect, type Page, test } from '@playwright/test';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
 import { openScenario } from 'state-scenarios/playwright';
+import { E2E_SAVE_DIR } from './save-dir';
 
 const heading = (page: Page) => page.getByRole('main').getByRole('heading', { level: 2 });
 
@@ -96,6 +99,130 @@ test('save as scenario rejects invalid names and rule violations', async ({ page
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('Not Kebab');
   await page.getByRole('button', { name: 'Download JSON' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'kebab-case' })).toBeVisible();
+});
+
+test('mark ready and download a catalog file that extends default', async ({ page }) => {
+  await openScenario(page, 'empty');
+  await panel(page);
+  await page.getByText('Save as scenario').click();
+  await page.getByRole('textbox', { name: 'Scenario name' }).fill('captured-empty');
+  await page.getByRole('button', { name: 'Mark ready' }).click();
+  await page.getByRole('main').getByText('No countries match').click();
+  await expect(page.getByRole('textbox', { name: 'Ready selector' })).toHaveValue(/No countries match|role=/);
+  await expect(page.getByLabel('Base scenario to extend')).toHaveValue('default');
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download JSON' }).click(),
+  ]);
+
+  const downloadPath = await download.path();
+
+  if (!downloadPath) throw new Error('download path missing');
+
+  const json = JSON.parse(readFileSync(downloadPath, 'utf8'));
+
+  expect(json.name).toBe('captured-empty');
+  expect(json.extends).toBe('default');
+  expect(json.ready).toMatch(/No countries match|role=/);
+  expect(json.$schema).toBe('../scenario.schema.json');
+});
+
+test('mark ready stays on when the click has no selector, shows why, and Esc cancels', async ({ page }) => {
+  await openScenario(page, 'empty');
+  await panel(page);
+  await page.getByText('Save as scenario').click();
+  await page.getByRole('button', { name: 'Mark ready' }).click();
+
+  const main = page.getByRole('main');
+  const box = await main.boundingBox();
+
+  if (!box) throw new Error('main not laid out');
+
+  await page.mouse.move(box.x + 5, box.y + box.height - 5);
+  await page.mouse.click(box.x + 5, box.y + box.height - 5);
+  await expect(page.getByText('No selector here')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Click the UI/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('textbox', { name: 'Ready selector' })).toHaveValue('');
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Mark ready' })).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('No selector here')).toBeHidden();
+});
+
+test('the ready field says what the selector matches, agreeing with Playwright', async ({ page }) => {
+  await openScenario(page, 'empty');
+  await panel(page);
+  await page.getByText('Save as scenario').click();
+
+  const ready = page.getByRole('textbox', { name: 'Ready selector' });
+  const status = page.locator('scenario-panel .ready-check');
+
+  await expect(status).toContainText('No ready selector');
+
+  for (
+    const [selector, expected] of [
+      ['role=heading[name="0 countries"]', /Matches 1 element/],
+      ['text="No countries match. Try fewer filters."', /Matches 1 element/],
+      ['text="Nothing like this"', /No match on this page/],
+      ['role=heading[name="0"]', /No match on this page/],
+      ['xpath=//h2', /Can't check/],
+    ] as const
+  ) {
+    await ready.fill(selector);
+    await expect(status).toContainText(expected);
+
+    // The panel's verdict has to agree with what openScenario will see (panel excluded).
+    if (!selector.startsWith('xpath')) {
+      const playwrightCount = await page.locator(selector).count();
+
+      expect(playwrightCount, selector).toBe(expected.source.includes('No match') ? 0 : 1);
+    }
+  }
+});
+
+test('save to project writes the catalog file, and asks before replacing it', async ({ page }) => {
+  const name = `e2e-saved-${test.info().workerIndex}-${Date.now()}`;
+  const file = join(E2E_SAVE_DIR, `${name}.json`);
+
+  try {
+    await openScenario(page, 'empty');
+    await panel(page);
+    await page.getByText('Save as scenario').click();
+    await page.getByRole('textbox', { name: 'Scenario name' }).fill(name);
+    await page.getByRole('textbox', { name: 'Ready selector' }).fill('role=heading[name="0 countries"]');
+
+    const save = page.getByRole('button', { name: /^Save to / });
+
+    await save.click();
+    await expect(page.locator('scenario-panel .save-status')).toContainText(`${name}.json`);
+
+    const json = JSON.parse(readFileSync(file, 'utf8'));
+
+    expect(json).toMatchObject({ name, extends: 'default', ready: 'role=heading[name="0 countries"]' });
+
+    // Second save: the panel asks first; declining keeps the file.
+    await page.getByRole('textbox', { name: 'Ready selector' }).fill('text="changed"');
+
+    const declined = page.waitForEvent('dialog').then(async (d) => {
+      expect(d.message()).toContain('already exists');
+      await d.dismiss();
+    });
+
+    await save.click();
+    await declined;
+    await expect.poll(() => JSON.parse(readFileSync(file, 'utf8')).ready).toBe(
+      'role=heading[name="0 countries"]',
+    );
+
+    const accepted = page.waitForEvent('dialog').then((d) => d.accept());
+
+    await save.click();
+    await accepted;
+    await expect.poll(() => JSON.parse(readFileSync(file, 'utf8')).ready).toBe('text="changed"');
+  } finally {
+    if (existsSync(file)) rmSync(file);
+  }
 });
 
 test('switching to a never-ending loading scenario still commits; the latest switch wins', async ({ page }) => {

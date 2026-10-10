@@ -1,7 +1,15 @@
 import type { SetupWorker } from 'msw/browser';
 import type { z } from 'zod';
 import { type Catalog, createCatalog, type ScenarioRule } from './catalog.js';
-import { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
+import {
+  DATA_KEY,
+  PARAM,
+  readInline,
+  RECORD_PARAM,
+  SAVE_ENDPOINT,
+  scenarioHref,
+  STRICT_PARAM,
+} from './link.js';
 import { createRecorder } from './record.js';
 import {
   type Json,
@@ -307,7 +315,10 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
         rule instanceof RegExp ? rule.test(request.url) : request.url.includes(rule)
       );
 
-      if (isPage || isAsset(request.url) || pathname.startsWith('/@') || allowed) {
+      if (
+        isPage || isAsset(request.url) || pathname.startsWith('/@') || pathname.startsWith(SAVE_ENDPOINT)
+        || allowed
+      ) {
         return msw.passthrough();
       }
 

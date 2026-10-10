@@ -131,3 +131,137 @@ function mergeObjects(base: JsonObject, over: JsonObject): JsonObject {
 export function deepMerge(base: Json | undefined, over: Json): Json {
   return isJsonObject(base) && isJsonObject(over) ? mergeObjects(base, over) : over;
 }
+
+/**
+ * Inverse of `extends` merge: overrides that turn a resolved `base` into `captured`.
+ * Pass the flattened base (from `catalog.resolve`). Copy-link keeps `captured` as-is;
+ * Download JSON uses this so the file can `extends` the base instead of repeating it.
+ */
+export function diffScenario(captured: Scenario, base?: Scenario): ScenarioInput {
+  if (!base) {
+    return compactScenario({
+      name: captured.name,
+      description: captured.description,
+      tags: captured.tags,
+      path: captured.path,
+      url: captured.url,
+      network: captured.network,
+      state: captured.state,
+      ready: captured.ready,
+    });
+  }
+
+  const url = diffUrl(base.url, captured.url);
+  const network = diffNetwork(base.network ?? [], captured.network ?? []);
+  const state = diffObjects(base.state ?? {}, captured.state ?? {});
+
+  return compactScenario({
+    name: captured.name,
+    extends: base.name,
+    description: captured.description,
+    tags: captured.tags,
+    path: captured.path !== base.path ? captured.path : undefined,
+    url,
+    network: network.length ? network : undefined,
+    state,
+    ready: captured.ready,
+  });
+}
+
+function diffUrl(
+  base: Scenario['url'],
+  captured: Scenario['url'],
+): ScenarioInput['url'] {
+  const baseUrl = base ?? {};
+  const capturedUrl = captured ?? {};
+  const out: Record<string, string | null> = {};
+
+  for (const [k, v] of Object.entries(capturedUrl)) {
+    if (v === null) continue;
+
+    if (baseUrl[k] !== v) out[k] = v;
+  }
+
+  for (const [k, v] of Object.entries(baseUrl)) {
+    if (v === null) continue;
+
+    if (!(k in capturedUrl) || capturedUrl[k] === null) out[k] = null;
+  }
+
+  return Object.keys(out).length ? out : undefined;
+}
+
+function diffNetwork(base: NetworkEntry[], captured: NetworkEntry[]): NetworkEntry[] {
+  const baseByKey = new Map(base.map((e) => [routeKey(e), e]));
+  const capByKey = new Map<string, NetworkEntry>();
+
+  // First match wins in MSW, so a later duplicate route is unreachable; keep the first.
+  for (const e of captured) if (!capByKey.has(routeKey(e))) capByKey.set(routeKey(e), e);
+
+  const out: NetworkEntry[] = [];
+
+  for (const [key, e] of capByKey) {
+    const prior = baseByKey.get(key);
+
+    if (!prior || !jsonEqual(prior, e)) out.push(e);
+  }
+
+  for (const [key, e] of baseByKey) {
+    if (!capByKey.has(key)) {
+      const removed: NetworkEntry = { method: e.method, path: e.path, remove: true };
+
+      if (e.query) removed.query = e.query;
+
+      out.push(removed);
+    }
+  }
+
+  return out;
+}
+
+function diffObjects(base: JsonObject, captured: JsonObject): JsonObject | undefined {
+  const out: JsonObject = {};
+
+  for (const [k, v] of Object.entries(captured)) {
+    if (!(k in base)) out[k] = v;
+    else if (isJsonObject(base[k]) && isJsonObject(v)) {
+      const nested = diffObjects(base[k], v);
+
+      if (nested) out[k] = nested;
+    } else if (!jsonEqual(base[k], v)) out[k] = v;
+  }
+
+  for (const k of Object.keys(base)) {
+    if (!(k in captured)) out[k] = null;
+  }
+
+  return Object.keys(out).length ? out : undefined;
+}
+
+function jsonEqual(a: Json | NetworkEntry, b: Json | NetworkEntry): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function compactScenario(s: ScenarioInput): ScenarioInput {
+  const out: ScenarioInput = { name: s.name };
+
+  if (s.$schema !== undefined) out.$schema = s.$schema;
+
+  if (s.description !== undefined) out.description = s.description;
+
+  if (s.tags !== undefined) out.tags = s.tags;
+
+  if (s.extends !== undefined) out.extends = s.extends;
+
+  if (s.path !== undefined) out.path = s.path;
+
+  if (s.url !== undefined && Object.keys(s.url).length) out.url = s.url;
+
+  if (s.network !== undefined && s.network.length) out.network = s.network;
+
+  if (s.state !== undefined && Object.keys(s.state).length) out.state = s.state;
+
+  if (s.ready !== undefined) out.ready = s.ready;
+
+  return out;
+}
