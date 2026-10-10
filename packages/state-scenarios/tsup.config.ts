@@ -7,6 +7,8 @@ export default defineConfig({
     'src/index.ts',
     'src/panel.ts',
     'src/playwright.ts',
+    'src/vite.ts',
+    'src/next.ts',
     'src/adapters/tanstack-query.ts',
     'src/adapters/zustand.ts',
     'src/adapters/redux.ts',

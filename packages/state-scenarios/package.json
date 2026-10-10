@@ -29,6 +29,16 @@
       "source": "./src/playwright.ts",
       "import": "./dist/playwright.js"
     },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "source": "./src/vite.ts",
+      "import": "./dist/vite.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "source": "./src/next.ts",
+      "import": "./dist/next.js"
+    },
     "./tanstack-query": {
       "types": "./dist/adapters/tanstack-query.d.ts",
       "source": "./src/adapters/tanstack-query.ts",
@@ -76,7 +86,8 @@
     "msw": "^2.4.0 || ^3.0.0",
     "zod": "^4.1.0",
     "@playwright/test": ">=1.40",
-    "@tanstack/react-query": ">=5"
+    "@tanstack/react-query": ">=5",
+    "vite": ">=5"
   },
   "peerDependenciesMeta": {
     "msw": {
@@ -87,6 +98,9 @@
     },
     "@tanstack/react-query": {
       "optional": true
+    },
+    "vite": {
+      "optional": true
     }
   },
   "devDependencies": {
@@ -95,6 +109,7 @@
     "tsup": "^8.5.1",
     "typescript": "7.0.2",
     "msw": "3.0.2",
-    "zod": "4.6.5"
+    "zod": "4.6.5",
+    "vite": "8.3.2"
   }
 }

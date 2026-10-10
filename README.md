@@ -86,7 +86,7 @@ useScenarioState('page', state, (page) => dispatch({ type: 'set', state: page })
 
 On mount the hook applies the active scenario's `state.page`. The panel shows `state` live, and your edits in the panel go back through `dispatch`. Pass a Zod schema and `apply` receives typed state; leave it out and `apply` receives the scenario's JSON. In production, with no session, the hook does nothing.
 
-The MSW Vite plugin serves the worker: `msw({ mode: 'worker-only' })` (see `examples/demo-react/vite.config.ts`). MSW loads when a scenario mocks the network or strict mode is on, so state-only setups like the Preact example never start a worker.
+The MSW Vite plugin serves the worker: `msw({ mode: 'worker-only' })` (see `examples/demo-react/vite.config.ts`). Add `stateScenarios({ dir: 'src/scenarios' })` from `state-scenarios/vite` so the panel saves scenarios into that folder. The plugin runs under `vite dev` and accepts same-origin requests to a loopback host (`localhost`, `127.0.0.1`, `[::1]`), which keeps cross-site pages and DNS rebinding out. From another device on `--host`, use Download JSON. MSW loads when a scenario mocks the network or strict mode is on, so state-only setups like the Preact example never start a worker.
 
 **Already using MSW?** Start your worker and pass it in: `startScenarios({ worker, ... })`. Requests go to the scenario's handlers first, then yours, then the strict-mode catch-all. `destroy()` puts your handlers back. state-scenarios passes `workerOptions` to `start()` when it starts its own worker.
 
@@ -131,6 +131,15 @@ export function Scenarios({ children }: { children: ReactNode; }) {
 - In development the app renders after hydration, once the session has started, so the server-rendered HTML never shows the scenario. Cookies reach server components on the next request (`router.refresh()` or a reload).
 - `url` params reach `useSearchParams` straight away; server components see them after a reload.
 - If client components `fetch`, run `npx msw init public` so the worker is served from `/mockServiceWorker.js`.
+- To let the panel save scenarios into the project, add `app/%5F%5Fstate-scenarios/save/route.ts` (`%5F` is an underscore; a plain `_` folder is private and never routes):
+
+  ```ts
+  import { createSaveRoute } from 'state-scenarios/next';
+
+  export const { GET } = createSaveRoute({ dir: 'src/scenarios' });
+  ```
+
+  The route points the panel at a save server on `127.0.0.1`, so other machines on your network can't write files even though `next dev` listens on it. It answers 404 outside `next dev`. Next.js lists scenario imports by hand, so import a saved file to see it in the panel.
 
 ### Selecting a scenario
 
@@ -160,7 +169,7 @@ The page reloads instead when:
 
 - **Scenarios:** click to switch, or **+** to combine with the current one.
 - **Live state:** one JSON editor per connected adapter. It follows the app while open and leaves alone whatever you're typing. **Apply** pushes your edit into the app.
-- **Save as scenario:** a name plus the current URL params, the active network fixtures, and every adapter's live state, including the query cache and any refresh in progress. **Copy link** gives a self-contained link; **Download JSON** gives a file to commit to `scenarios/`. The panel checks the rules first.
+- **Save as scenario:** name the state, set **Ready** (Mark ready and click the UI, or pick a suggestion), choose a base to **Extends** (defaults to `default` when present). Under **Ready** the panel says whether the selector matches on this page, using Playwright's matching rules, and outlines the match while the field has focus. **Save to src/scenarios** (with the Vite plugin below, or the Next.js route) writes the catalog file into your project, asking before it replaces one; **Download JSON** gives the same file as a download. That file holds overrides against the base, plus `ready` and optional `$schema` from `mountPanel(session, { schemaPath })`. **Copy link** embeds a self-contained flattened snapshot. Empty ready still copies a link; `shoot` and Playwright won't wait on the UI until you set one. The panel checks the rules first.
 - **Edit current scenario:** edit the scenario as written, `extends` and all, and apply it.
 - Requests the scenario didn't cover appear in the panel.
 
@@ -204,16 +213,20 @@ expect(await unhandledRequests(page)).toEqual([]);
 ## CLI
 
 ```sh
+pnpm state-scenarios init                     # src/scenarios by default
 pnpm state-scenarios validate examples/demo-react/scenarios --rules examples/demo-react/rules.ts      # CI: everything resolves and passes rules
 pnpm state-scenarios list examples/demo-react/scenarios --base-url http://localhost:5173 [--json]
 pnpm state-scenarios shoot examples/demo-react/scenarios --base-url http://localhost:5173 --out shots [--json]
 pnpm state-scenarios suggest examples/demo-react/scenarios --src examples/demo-react --rules examples/demo-react/rules.ts --schema examples/demo-react/scenario.schema.json
+pnpm state-scenarios promote examples/demo-react/scenarios   # move proposed/ into the catalog after review
 ```
 
+- **`init`** creates `<dir>/default.json` and a sibling `scenario.schema.json`, then prints a copy-paste wiring snippet (no entrypoint patching). Then wire it up, open `?scenario-record`, Mark ready and save.
 - **`shoot`** suits an agent checking a UI change. It opens every scenario (or `--only a,b`), waits for `ready`, saves a screenshot, and reports unmocked requests, uncaught exceptions and `console.error` calls. It exits non-zero on any of them. It ignores the browser's "Failed to load resource" logs, which error scenarios cause on purpose.
-- **`suggest`** sends your source files and a summary of the catalog to a model; fixture bodies go as a count and a first item. The model lists **candidate** UI states, marks which existing scenarios cover them, and drafts scenarios for the gaps. The CLI rejects drafts that fail `--schema` (adapter state shapes included), the rules or an `extends` lookup, and says why. Valid drafts land in `<dir>/proposed/` for review, a folder `*.json` globs don't load.
+- **`suggest`** sends your source files and a summary of the catalog to a model; fixture bodies go as a count and a first item. The model lists **candidate** UI states, marks which existing scenarios cover them, and drafts scenarios for the gaps. The CLI rejects drafts that fail `--schema` (adapter state shapes included), the rules or an `extends` lookup, and says why. Valid drafts land in `<dir>/proposed/` for review, a folder `*.json` globs don't load. Prefer panel capture (record + Mark ready) for fixtures; treat suggest as ideation.
   - Default model: `claude-opus-5-5`, with server-side refusal fallback. It needs `ANTHROPIC_API_KEY` or `ant auth login`.
   - Other models: `--model` (or `STATE_SCENARIOS_MODEL`), with `ANTHROPIC_BASE_URL` pointing at an Anthropic-compatible proxy. `--env-file` loads those variables. The CLI drops Claude-only options for other models, and when a proxy rejects structured output it retries, asking for plain JSON.
+- **`promote`** moves `<dir>/proposed/*.json` into `<dir>` after each draft resolves (and passes `--rules`). Refuses duplicate names. `--dry-run` prints moves only.
 
 ## Packages
 

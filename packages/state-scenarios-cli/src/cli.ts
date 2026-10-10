@@ -7,6 +7,8 @@ import { createCatalog, scenarioJsonSchema, type ScenarioRule } from 'state-scen
 
 const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
 
+  init       Create <dir> (default src/scenarios) with default.json, a sibling scenario.schema.json,
+             and print the wiring snippet to paste into your entry file
   validate   Check every scenario parses, resolves and passes --rules
   list       Print scenarios with links (--base-url) for people and agents; --json for machines
   shoot      Open each scenario in Chromium, wait for its ready selector, screenshot it,
@@ -15,6 +17,7 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
              --src dir[,dir] (required), --schema file, --max n, --model (default $STATE_SCENARIOS_MODEL or claude-opus-5-5).
              Needs ANTHROPIC_API_KEY or \`ant auth login\`; ANTHROPIC_BASE_URL points it at a compatible proxy.
              --env-file file loads those variables first.
+  promote    Move <dir>/proposed/*.json into <dir> after validate. --dry-run lists moves only.
 
 Common: --rules file   module exporting \`rules\` (ScenarioRule[])`;
 
@@ -34,11 +37,12 @@ const { positionals, values } = parseArgs({
     max: { type: 'string' },
     model: { type: 'string' },
     'env-file': { type: 'string' },
+    'dry-run': { type: 'boolean' },
     help: { type: 'boolean', short: 'h' },
   },
 });
 
-const [command, dir] = positionals;
+const [command, dir = command === 'init' ? 'src/scenarios' : undefined] = positionals;
 
 if (values.help || !command || !dir) {
   console.log(HELP);
@@ -46,9 +50,21 @@ if (values.help || !command || !dir) {
 }
 
 try {
+  if (command === 'init') {
+    const { initScenarios } = await import('./init.js');
+    initScenarios(dir);
+    process.exit(0);
+  }
+
   const rules: ScenarioRule[] = values.rules
     ? (await import(pathToFileURL(resolve(values.rules)).href)).rules
     : [];
+
+  if (command === 'promote') {
+    const { promoteScenarios } = await import('./promote.js');
+    const result = promoteScenarios(dir, { rules, dryRun: !!values['dry-run'] });
+    process.exit(result.skipped.length ? 1 : 0);
+  }
 
   const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
 
@@ -82,9 +98,13 @@ try {
       }));
 
       if (values.json) console.log(JSON.stringify(rows, null, 2));
-      else {for (const r of rows) {
-          console.log(`${r.name.padEnd(32)} ${r.description}${r.url ? `\n${' '.repeat(33)}${r.url}` : ''}`);
-        }}
+      else {
+        for (const r of rows) {
+          console.log(
+            `${r.name.padEnd(32)} ${r.description}${r.url ? `\n${' '.repeat(33)}${r.url}` : ''}`,
+          );
+        }
+      }
 
       break;
     }
@@ -120,7 +140,10 @@ try {
         let error: string | null = null;
 
         try {
-          await openScenario(page, s.name, { path: catalog.resolve(s).path, strict: !values['no-strict'] });
+          await openScenario(page, s.name, {
+            path: catalog.resolve(s).path,
+            strict: !values['no-strict'],
+          });
         } catch (err) {
           error = err instanceof Error ? err.message.split('\n')[0] : String(err);
         }
@@ -222,7 +245,9 @@ try {
       for (const r of result.rejected) console.log(`- rejected proposal for ${r.covers}: ${r.error}`);
 
       if (result.accepted.length) {
-        console.log(`\nReview the drafts, then move the ones you want into ${dir}.`);
+        console.log(
+          `\nReview the drafts, then: state-scenarios promote ${dir}`,
+        );
       }
 
       break;

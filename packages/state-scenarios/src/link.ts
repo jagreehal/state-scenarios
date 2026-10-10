@@ -13,6 +13,9 @@ export const STRICT_PARAM = 'scenario-strict';
 /** Record real responses so they can be saved as a scenario. */
 export const RECORD_PARAM = 'scenario-record';
 
+/** Dev-server route the `state-scenarios/vite` plugin serves for the panel's "Save to project". */
+export const SAVE_ENDPOINT = '/__state-scenarios/save';
+
 /** Inline scenario JSON, kept in the URL hash so it never reaches a server. */
 export const DATA_KEY = 'scenario-data';
 

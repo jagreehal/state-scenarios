@@ -1,8 +1,19 @@
-export { type Catalog, createCatalog, deepMerge, defineScenarioRules, type ScenarioRule } from './catalog.js';
+export { type CapturedScenario, type CaptureOptions, captureScenario } from './capture.js';
+
+export {
+  type Catalog,
+  createCatalog,
+  deepMerge,
+  defineScenarioRules,
+  diffScenario,
+  type ScenarioRule,
+} from './catalog.js';
 
 export { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
 
 export { toHandlers } from './network.js';
+
+export { checkReadySelector, type ReadyCheck, selectorForElement, suggestReadySelectors } from './ready.js';
 
 export {
   type Adapter,

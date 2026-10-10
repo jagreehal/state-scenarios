@@ -24,7 +24,7 @@ try {
     rules,
   });
 
-  mountPanel(session);
+  mountPanel(session, { schemaPath: '../scenario.schema.json' });
   root.render(
     <QueryClientProvider client={queryClient}>
       <App />

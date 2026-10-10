@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test';
+import { E2E_SAVE_DIR } from './e2e/save-dir';
 
 export default defineConfig({
   testDir: 'e2e',
@@ -7,6 +8,7 @@ export default defineConfig({
     {
       command: 'pnpm --filter demo-react exec vite --port 5179 --strictPort',
       url: 'http://localhost:5179',
+      env: { STATE_SCENARIOS_SAVE_DIR: E2E_SAVE_DIR },
       reuseExistingServer: true,
     },
     {
@@ -18,6 +20,7 @@ export default defineConfig({
     {
       command: 'pnpm --filter next-app exec next dev --port 5181',
       url: 'http://localhost:5181',
+      env: { STATE_SCENARIOS_SAVE_DIR: E2E_SAVE_DIR },
       reuseExistingServer: true,
     },
     {
