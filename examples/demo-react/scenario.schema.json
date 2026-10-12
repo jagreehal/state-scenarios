@@ -198,6 +198,13 @@
         ]
       }
     },
+    "handlers": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
     "state": {
       "type": "object",
       "properties": {
@@ -233,6 +240,25 @@
     },
     "ready": {
       "type": "string"
+    },
+    "viewport": {
+      "type": "object",
+      "properties": {
+        "width": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "height": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "width",
+        "height"
+      ]
     }
   },
   "required": [

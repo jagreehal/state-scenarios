@@ -9,6 +9,10 @@ export {
   type ScenarioRule,
 } from './catalog.js';
 
+export { unsignedJwt } from './jwt.js';
+
+export { redactSecrets } from './redact.js';
+
 export { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
 
 export { toHandlers } from './network.js';
@@ -22,6 +26,8 @@ export {
   type JsonAdapter,
   type MswWorker,
   navigate,
+  type PageHooks,
+  type ReadyReport,
   type ScenarioSession,
   type StartOptions,
   startScenarios,

@@ -45,6 +45,8 @@ export function initScenarios(scenariosDir: string, cwd = process.cwd()) {
   console.log('click through the flow, Mark ready, and Download JSON into this folder.');
   console.log('');
   console.log(wiringSnippet(stack, scenariosImport));
+
+  return { stack };
 }
 
 type Stack = 'vite' | 'next' | 'unknown';
