@@ -1,3 +1,4 @@
+import type { RequestHandler } from 'msw';
 import type { SetupWorker } from 'msw/browser';
 import type { z } from 'zod';
 import { type Catalog, createCatalog, type ScenarioRule } from './catalog.js';
@@ -79,8 +80,22 @@ export interface StartOptions {
    * "Save as scenario" can replay them offline. Also switched on by `?scenario-record`.
    */
   record?: boolean;
-  /** Requests that may reach the network in strict mode (URL substring or RegExp). */
+  /**
+   * Requests that may reach the real network in strict mode (URL substring or RegExp),
+   * e.g. images from a CDN or a maps API the screen needs.
+   */
   allow?: (string | RegExp)[];
+  /**
+   * Requests the scenario doesn't care about, such as analytics, error reporting and captcha
+   * checks (URL substring or RegExp). They are never reported as unhandled, and in strict mode
+   * they get an empty 204 instead of a 501, so SDKs don't log errors or retry.
+   */
+  ignore?: (string | RegExp)[];
+  /**
+   * MSW handlers a scenario can use by name with `"handlers": ["name"]`, e.g. the ones your
+   * unit tests already use. They answer after the scenario's `network` entries.
+   */
+  handlers?: Record<string, RequestHandler | RequestHandler[]>;
   /**
    * Called after an in-place switch changes network fixtures, so the app refetches,
    * e.g. `() => queryClient.resetQueries()`. Without it, such switches reload the page.
@@ -191,6 +206,35 @@ interface Connected {
   unsubscribe?: () => void;
 }
 
+/**
+ * What the CLI's `shoot`, `doctor` and `mcp` call inside the page, as JSON in and out.
+ * The modules behind it load on first call, so apps that never use it don't pay for it.
+ */
+export interface PageHooks {
+  /** The active scenario's name, or null. */
+  scenario(): string | null;
+  /** Whether a ready selector matches now, plus selectors that would. */
+  checkReady(selector: string): Promise<ReadyReport>;
+  /** The app's current state as a catalog file, after recorded responses settle. */
+  capture(
+    options: { name: string; description?: string; ready?: string; extends?: string; },
+  ): Promise<ScenarioInput>;
+}
+
+export interface ReadyReport {
+  status: 'match' | 'none' | 'unchecked' | 'invalid';
+  count?: number;
+  visible?: boolean;
+  error?: string;
+  /** Distinctive selectors on the page now, best first. */
+  suggestions: string[];
+}
+
+declare global {
+  /** Set by `startScenarios` for the CLI and agents; see `PageHooks`. */
+  var stateScenariosPage: PageHooks | undefined;
+}
+
 let current: ScenarioSession | null = null;
 
 /** The session whose scenario the <html> markers describe; only it may clear them. */
@@ -264,6 +308,21 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     };
   };
 
+  /** The scenario's named handlers, in order. */
+  const named = (resolved: Scenario) =>
+    (resolved.handlers ?? []).flatMap((name) => {
+      const found = options.handlers?.[name];
+
+      if (!found) {
+        const known = Object.keys(options.handlers ?? {}).join(', ') || 'none';
+        throw new Error(
+          `Scenario "${resolved.name}" uses unknown handler "${name}". Known handlers: ${known}`,
+        );
+      }
+
+      return found;
+    });
+
   // The app's worker, if given, else one this session starts on first need.
   let worker: MswWorker | null = options.worker ?? null;
   let ownWorker: SetupWorker | null = null;
@@ -301,25 +360,24 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
   // MSW loads only when a scenario mocks the network or strict mode needs a catch-all.
   const setNetwork = async (resolved: Scenario) => {
-    if (!resolved.network?.length && !session.strict && !session.recording && !worker) return;
+    if (!mocks(resolved) && !session.strict && !session.recording && !worker) return;
     const [{ toHandlers }, msw] = await Promise.all([import('./network.js'), import('msw')]);
 
     if (destroyed) return;
-    const allow = options.allow ?? [];
 
     const fallback = msw.http.all('*', ({ request }) => {
       const { pathname } = new URL(request.url);
       const isPage = request.mode === 'navigate' || !!request.headers.get('accept')?.includes('text/html');
 
-      const allowed = allow.some((rule) =>
-        rule instanceof RegExp ? rule.test(request.url) : request.url.includes(rule)
-      );
-
       if (
         isPage || isAsset(request.url) || pathname.startsWith('/@') || pathname.startsWith(SAVE_ENDPOINT)
-        || allowed
+        || matches(options.allow, request.url)
       ) {
         return msw.passthrough();
+      }
+
+      if (matches(options.ignore, request.url)) {
+        return session.strict ? new msw.HttpResponse(null, { status: 204 }) : msw.passthrough();
       }
 
       const label = `${request.method} ${request.url}`;
@@ -332,8 +390,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       return msw.HttpResponse.json({ message: `No scenario handler for ${label}` }, { status: 501 });
     });
 
-    // Scenario first, then the app's own handlers, then the catch-all.
-    const handlers = [...toHandlers(resolved.network), ...appHandlers, fallback];
+    // Scenario first, then its named handlers, then the app's own, then the catch-all.
+    const handlers = [...toHandlers(resolved.network), ...named(resolved), ...appHandlers, fallback];
 
     if (worker) {
       worker.resetHandlers(...handlers);
@@ -380,8 +438,9 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
     const prev = session.resolved;
     const nextKeys = Object.keys(resolved.state ?? {});
+    named(resolved); // throws on an unknown handler name, before anything changes
     // Opening a scenario always restarts its network: fresh handler sequences, refetched data.
-    const mocksNetwork = worker !== null || !!resolved.network?.length || session.strict;
+    const mocksNetwork = worker !== null || mocks(resolved) || session.strict;
 
     const href = scenarioHref(resolved, { inline, strict: session.strict });
 
@@ -519,6 +578,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
       if (globalThis.stateScenariosUnhandled === unhandled) globalThis.stateScenariosUnhandled = undefined;
 
+      if (globalThis.stateScenariosPage === hooks) globalThis.stateScenariosPage = undefined;
+
       if (markerOwner === session) {
         markerOwner = null;
         delete document.documentElement.dataset.scenario;
@@ -528,6 +589,28 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   };
 
   current = session;
+
+  const hooks: PageHooks = {
+    scenario: () => session.resolved?.name ?? null,
+    async checkReady(selector) {
+      const { checkReadySelector, suggestReadySelectors } = await import('./ready.js');
+      const check = checkReadySelector(selector);
+      const suggestions = suggestReadySelectors(null, { limit: 5 });
+
+      return check.status === 'match'
+        ? { status: 'match', count: check.count, visible: check.visible, suggestions }
+        : { ...check, suggestions };
+    },
+    async capture({ extends: base, ...options }) {
+      const { captureScenario } = await import('./capture.js');
+      await session.settleRecording();
+
+      return captureScenario(session, { ...options, base: base ? lookup(catalog, base) : undefined })
+        .forCatalog;
+    },
+  };
+
+  globalThis.stateScenariosPage = hooks;
 
   // Adapters connect whether or not a scenario is selected, so the plain app can be
   // inspected and captured too. Only applying scenario state is conditional.
@@ -550,6 +633,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
         : lookup(catalog, selection.name ?? '');
 
       const resolved = catalog.resolve(active);
+      named(resolved);
 
       return { active, resolved, prepared: prepareStates(resolved, initial, !!selection.data) };
     } catch (err) {
@@ -578,6 +662,11 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
   return session;
 }
+
+const mocks = (s: Scenario) => !!s.network?.length || !!s.handlers?.length;
+
+const matches = (rules: (string | RegExp)[] = [], url: string) =>
+  rules.some((rule) => (rule instanceof RegExp ? rule.test(url) : url.includes(rule)));
 
 /** msw's `isCommonAssetRequest`, inlined so msw 2.4 and later all work. */
 const isAsset = (href: string) => {

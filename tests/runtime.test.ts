@@ -369,3 +369,76 @@ describe("with the app's own MSW worker", () => {
     expect(attached.size).toBe(0);
   });
 });
+
+describe('named handlers and ignored requests', () => {
+  beforeEach(() => browser('http://app.test/'));
+
+  const get = async (path: string) => {
+    const res = await fetch(`http://api.test${path}`, { headers: { accept: 'application/json' } });
+
+    return `${res.status} ${await res.text()}`;
+  };
+
+  it('answers with handlers named by the scenario, after its network entries', async () => {
+    const server = setupServer();
+    server.listen({ onUnhandledFrame: 'bypass' });
+
+    try {
+      browser('http://app.test/?scenario=empty&scenario-strict');
+
+      const session = await startScenarios({
+        scenarios: [{
+          name: 'empty',
+          handlers: ['statementsEmpty'],
+          network: [{
+            path: 'http://api.test/statements',
+            query: { page: '2' },
+            response: { text: 'page 2' },
+          }],
+        }],
+        handlers: {
+          statementsEmpty: http.get('http://api.test/statements', () => HttpResponse.text('none')),
+        },
+        ignore: ['analytics.test', /\/telemetry$/],
+        worker: server,
+      });
+
+      expect(await get('/statements?page=2')).toBe('200 page 2'); // JSON entry first
+      expect(await get('/statements')).toBe('200 none'); // then the named handler
+      expect(await get('/telemetry')).toBe('204 '); // ignored: empty, not a 501
+      expect(await get('/other')).toMatch(/^501 /);
+      expect(session.unhandled).toEqual(['GET http://api.test/other']);
+      session.destroy();
+    } finally {
+      server.close();
+    }
+  });
+
+  it('rejects an unknown handler name, listing the known ones', async () => {
+    browser('http://app.test/?scenario=bad');
+
+    await expect(
+      startScenarios({ scenarios: [{ name: 'bad', handlers: ['missing'] }], handlers: {} }),
+    ).rejects.toThrow('unknown handler "missing". Known handlers: none');
+  });
+});
+
+describe('page hooks for the CLI and agents', () => {
+  it('report the active scenario and capture it, and go away on destroy', async () => {
+    browser('http://app.test/?scenario=one');
+    const session = await startScenarios({ scenarios: counted(5), adapters: [slowAdapter([])] });
+    const hooks = globalThis.stateScenariosPage;
+
+    expect(hooks?.scenario()).toBe('one');
+    expect(await hooks?.capture({ name: 'saved', extends: 'one', ready: 'text=Seven' })).toEqual({
+      name: 'saved',
+      extends: 'one',
+      path: '/',
+      state: { count: 7 },
+      ready: 'text=Seven',
+    });
+
+    session.destroy();
+    expect(globalThis.stateScenariosPage).toBeUndefined();
+  });
+});

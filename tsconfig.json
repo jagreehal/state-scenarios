@@ -17,6 +17,7 @@
     "examples/demo-react",
     "examples/auth-flows",
     "playwright.config.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "docs/examples"
   ]
 }

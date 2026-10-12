@@ -92,3 +92,40 @@ async function setPanel(page: Page, show: boolean) {
 /** Requests the active scenario didn't cover, e.g. to assert none in strict runs. */
 export const unhandledRequests = (page: Page): Promise<string[]> =>
   page.evaluate(() => globalThis.stateScenariosUnhandled ?? []);
+
+/**
+ * Draw a mouse pointer that follows Playwright's mouse, since recorded videos don't show one.
+ * It glides between points and pulses on click. Call before the page loads, e.g. before `openScenario`.
+ */
+export async function showCursor(page: Page) {
+  await page.addInitScript(() => {
+    const cursor = document.createElement('div');
+    cursor.setAttribute('aria-hidden', 'true');
+    cursor.style.cssText = [
+      'position:fixed',
+      'left:0',
+      'top:0',
+      'width:18px',
+      'height:18px',
+      'margin:-9px 0 0 -9px',
+      'border-radius:50%',
+      'background:rgba(20,20,20,.55)',
+      'border:2px solid #fff',
+      'box-shadow:0 1px 4px rgba(0,0,0,.4)',
+      'pointer-events:none',
+      'z-index:2147483647',
+      'transform:translate(-40px,-40px)',
+      'transition:transform .25s ease-out,scale .1s',
+    ].join(';');
+
+    const place = (e: MouseEvent) => (cursor.style.transform = `translate(${e.clientX}px,${e.clientY}px)`);
+    addEventListener('mousemove', place, true);
+    addEventListener('mousedown', () => (cursor.style.scale = '0.7'), true);
+    addEventListener('mouseup', () => (cursor.style.scale = '1'), true);
+
+    const attach = () => document.documentElement.append(cursor);
+
+    if (document.documentElement) attach();
+    else addEventListener('DOMContentLoaded', attach);
+  });
+}

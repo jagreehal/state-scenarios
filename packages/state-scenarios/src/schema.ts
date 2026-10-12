@@ -69,6 +69,11 @@ export const ScenarioSchema = z.object({
    * Otherwise earlier entries win, and a scenario's own entries come before its parents'.
    */
   network: z.array(NetworkEntrySchema).optional(),
+  /**
+   * Names of MSW handlers passed to `startScenarios({ handlers })`, e.g. ones your unit tests
+   * already use. They answer after this scenario's `network` entries. Inherited and combined.
+   */
+  handlers: z.array(z.string().min(1)).optional(),
   /** Per-adapter state, keyed by adapter key. Objects deep-merge; null removes a key. */
   state: z.record(z.string(), JsonSchema).optional(),
   /**
@@ -76,6 +81,8 @@ export const ScenarioSchema = z.object({
    * e.g. "text=Loading countries…". Not inherited: each state looks different.
    */
   ready: z.string().optional(),
+  /** Browser size `shoot` and `record` use for this scenario, e.g. a phone layout. Inherited. */
+  viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional(),
 });
 
 export type Scenario = z.output<typeof ScenarioSchema>;

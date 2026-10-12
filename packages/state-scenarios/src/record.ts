@@ -1,4 +1,5 @@
 import { SAVE_ENDPOINT } from './link.js';
+import { redactQuery, redactSecrets } from './redact.js';
 import { type Json, MethodSchema, type NetworkEntry, parseJson } from './schema.js';
 
 /** One real response, placed by when its request started. */
@@ -51,16 +52,33 @@ export function createRecorder() {
       }
 
       const read = response.clone().text().then((text) => {
+        const { query, dropped } = redactQuery(Object.fromEntries(url.searchParams));
+
         const call: RecordedCall = {
           order,
           method: method.data,
           path: url.origin === location.origin ? url.pathname : url.origin + url.pathname,
-          query: Object.fromEntries(url.searchParams),
+          query,
           status: response.status,
         };
 
+        if (dropped.length) {
+          console.info(
+            `[state-scenarios] left out query ${dropped.join(', ')} in ${method.data} ${call.path}`,
+          );
+        }
+
         // Parsed before the push, so a body that fails to parse leaves no half-recorded call.
-        if (text) call.body = parseJson(text);
+        if (text) {
+          // Recorded scenarios get committed, linked and pasted into chats: keep secrets out.
+          const { value, redacted } = redactSecrets(parseJson(text));
+          call.body = value;
+
+          if (redacted.length) {
+            console.info(`[state-scenarios] redacted ${redacted.join(', ')} in ${method.data} ${call.path}`);
+          }
+        }
+
         calls.push(call);
       }).catch((err) => console.warn('[state-scenarios] skipped a recorded response', err))
         .finally(() => pending.delete(read));

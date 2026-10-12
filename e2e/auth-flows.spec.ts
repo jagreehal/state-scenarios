@@ -99,7 +99,8 @@ test('record the real flow, then replay it offline', async ({ page, browser }) =
       path: '/api/verify-code',
       sequence: [
         { status: 401, body: { message: 'That code is wrong' } },
-        { status: 200, body: { token: 'real-ada@example.com', email: 'ada@example.com' } },
+        // The real token never leaves the browser that recorded it.
+        { status: 200, body: { token: '[redacted]', email: 'ada@example.com' } },
       ],
     },
   ]);

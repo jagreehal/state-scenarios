@@ -1,5 +1,6 @@
 import { diffScenario } from './catalog.js';
 import { PARAM, RECORD_PARAM, STRICT_PARAM } from './link.js';
+import { redactQuery, redactSecrets } from './redact.js';
 import type { ScenarioSession } from './runtime.js';
 import { parseScenario, type Scenario, type ScenarioInput } from './schema.js';
 
@@ -31,16 +32,19 @@ export interface CapturedScenario {
  * fixtures (plus recorded responses), and every connected adapter's live state.
  */
 export function captureScenario(session: ScenarioSession, options: CaptureOptions): CapturedScenario {
-  const url: Record<string, string> = {};
+  const params: Record<string, string> = {};
   new URLSearchParams(location.search).forEach((v, k) => {
-    if (!SCENARIO_PARAMS.has(k)) url[k] = v;
+    if (!SCENARIO_PARAMS.has(k)) params[k] = v;
   });
+
+  // Saved scenarios get committed and shared: keep sessions and tokens out of them.
+  const { query: url } = redactQuery(params);
 
   const state = Object.fromEntries(
     session.keys().flatMap((key) => {
       const value = session.read(key);
 
-      return value === undefined ? [] : [[key, value] as const];
+      return value === undefined ? [] : [[key, redactSecrets(value).value] as const];
     }),
   );
 
@@ -53,6 +57,8 @@ export function captureScenario(session: ScenarioSession, options: CaptureOption
     path: location.pathname,
     url,
     network: network.length ? network : undefined,
+    handlers: session.resolved?.handlers,
+    viewport: session.resolved?.viewport,
     state,
     ready: options.ready || undefined,
   });

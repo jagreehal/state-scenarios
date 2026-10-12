@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { initScenarios } from '../packages/state-scenarios-cli/src/init.ts';
 import { promoteScenarios } from '../packages/state-scenarios-cli/src/promote.ts';
+import type { ScenarioInput } from '../packages/state-scenarios/src/schema.ts';
 
 describe('initScenarios', () => {
   it('writes default.json and scenario.schema.json without overwriting', () => {
@@ -106,5 +107,89 @@ describe('promoteScenarios with invalid JSON', () => {
     writeFileSync(join(dir, 'proposed', 'ok.json'), JSON.stringify({ name: 'ok' }));
 
     expect(() => promoteScenarios(dir)).toThrow(/default\.json/);
+  });
+});
+
+describe('installing the agent skills and MCP server', () => {
+  it('copies skills into .agents, links them from .claude, and keeps an existing MCP entry', async () => {
+    const { installSkills, registerMcp } = await import('../packages/state-scenarios-cli/src/skills.ts');
+    const root = mkdtempSync(join(tmpdir(), 'ss-skills-'));
+
+    installSkills(root);
+    installSkills(root); // rerun after an upgrade replaces them
+    expect(readFileSync(join(root, '.agents/skills/state-scenarios/SKILL.md'), 'utf8')).toMatch(
+      /^---\nname: state-scenarios/,
+    );
+    expect(existsSync(join(root, '.agents/skills/state-scenarios/references/mcp.md'))).toBe(true);
+    expect(readFileSync(join(root, '.claude/skills/create-scenario-map/SKILL.md'), 'utf8')).toContain(
+      'create-scenario-map',
+    );
+
+    writeFileSync(join(root, '.mcp.json'), '{"mcpServers":{"other":{"command":"x"}}}');
+    expect(registerMcp(root, ['mcp', 'src/scenarios', '--base-url', 'http://localhost:5173'])).toEqual([
+      'Registered the state-scenarios MCP server in .mcp.json',
+    ]);
+    const config = JSON.parse(readFileSync(join(root, '.mcp.json'), 'utf8'));
+    expect(Object.keys(config.mcpServers)).toEqual(['other', 'state-scenarios']);
+    expect(config.mcpServers['state-scenarios'].args).toContain('mcp');
+    expect(registerMcp(root, [])).toEqual(['Kept the state-scenarios server in .mcp.json']);
+  });
+});
+
+describe('doctor', () => {
+  /** A page whose session has started, showing `active` (or no scenario). */
+  const app = async (active?: string) => {
+    const { createServer } = await import('node:http');
+    const marker = active ? `document.documentElement.dataset.scenario = ${JSON.stringify(active)};` : '';
+
+    const server = createServer((_, res) =>
+      res.end(`<script>globalThis.stateScenariosPage = {}; ${marker}</script>`)
+    );
+
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+
+    return { server, baseURL: `http://127.0.0.1:${address instanceof Object ? address.port : 0}` };
+  };
+
+  const doctor = async (baseURL: string, scenarios: ScenarioInput[]) => {
+    const { createCatalog } = await import('../packages/state-scenarios/src/catalog.ts');
+    const { runDoctor } = await import('../packages/state-scenarios-cli/src/doctor.ts');
+
+    return runDoctor({
+      dir: 'scenarios',
+      baseURL,
+      loadCatalog: () => createCatalog(scenarios),
+      flags: {},
+      cwd: mkdtempSync(join(tmpdir(), 'ss-doctor-')),
+    });
+  };
+
+  it('reports a scenario with a broken extends instead of throwing', { timeout: 30_000 }, async () => {
+    const { server, baseURL } = await app();
+
+    try {
+      const checks = await doctor(baseURL, [{ name: 'broken', extends: 'missing' }]);
+
+      expect(checks.find((c) => c.name === 'scenarios')).toMatchObject({ status: 'fail' });
+      expect(checks.find((c) => c.name === 'session')).toMatchObject({ status: 'ok' });
+    } finally {
+      server.close();
+    }
+  });
+
+  it('fails when the app runs a session without the scenario', { timeout: 30_000 }, async () => {
+    const { server, baseURL } = await app('other');
+
+    try {
+      const checks = await doctor(baseURL, [{ name: 'wanted' }]);
+
+      expect(checks.find((c) => c.name === 'session')).toMatchObject({
+        status: 'fail',
+        code: 'SCENARIO_NOT_IN_APP',
+      });
+    } finally {
+      server.close();
+    }
   });
 });

@@ -39,6 +39,8 @@ A **scenario** is a JSON file that describes one application state: what the API
 | `network[]`           | `method`, `path` (MSW syntax, `:params`), optional `query`, then one of `response`, `sequence` or `remove: true`. A response sends `body` as JSON or `text` as text (an HTML error page, say). `delay: "infinite"` holds the request open for loading states. | A child entry **replaces** the parent's entry with the same method, path and query. `remove` drops it. |
 | `path`                | App route the scenario opens at, e.g. `/orders/42`. Links, the panel, `shoot` and `openInlineScenario` go there; "Save as scenario" records the current route.                                                                                                | Yes.                                                                                                   |
 | `url`                 | Query params the app starts with. Params already in the URL win, so a reload keeps in-app navigation.                                                                                                                                                         | Merged; `null` removes a param.                                                                        |
+| `handlers`            | Names of MSW handlers passed to `startScenarios({ handlers })`, such as the ones your unit tests use. They answer after `network[]`.                                                                                                                          | Combined with the parent's.                                                                            |
+| `viewport`            | `{ "width": 390, "height": 844 }`: the browser size `shoot` and `record` use for this scenario, e.g. a phone layout.                                                                                                                                          | Yes.                                                                                                   |
 | `state`               | Per-adapter state, as JSON. Reach for it when the network can't produce a state.                                                                                                                                                                              | Deep-merged; `null` removes a key.                                                                     |
 | `ready`               | A Playwright selector that turns visible once the UI shows this state. Tests, `shoot` and agents wait for it.                                                                                                                                                 | No. Each state renders differently.                                                                    |
 | `description`, `tags` | For people and the panel.                                                                                                                                                                                                                                     | No                                                                                                     |
@@ -50,7 +52,7 @@ Three layers check a scenario. Zod checks its **shape** at runtime and JSON Sche
 ```sh
 pnpm add state-scenarios zod msw          # msw only when scenarios mock the network
 pnpm add state-scenarios-react            # useScenarioState for component state
-pnpm add -D state-scenarios-cli           # validate, list, shoot, suggest
+pnpm add -D state-scenarios-cli           # validate, list, shoot, record, suggest
 ```
 
 ## Use
@@ -74,6 +76,75 @@ if (import.meta.env.DEV) {
 }
 // then create the router and render the app: routers read the URL once, when created
 ```
+
+**Router created on import?** If a module calls `createBrowserRouter` (or similar) at its top level, a static `import` creates the router before the session has set the URL. Start the session first, then import the router dynamically:
+
+```ts
+// main.ts: start the session first, then import the router
+import type { ScenarioInput } from 'state-scenarios';
+
+if (import.meta.env.DEV) {
+  const { startScenarios } = await import('state-scenarios');
+  await startScenarios({
+    scenarios: Object.values(
+      import.meta.glob<ScenarioInput>('/src/scenarios/*.json', { eager: true, import: 'default' }),
+    ),
+  });
+}
+
+const { router } = await import('./routing/router'); // created now, with the scenario's URL
+```
+
+The dynamic `import('state-scenarios')` inside the `DEV` check also keeps the library out of the production bundle.
+
+**Signed in from the start.** Apps that check a stored token on startup (read a cookie, call a validate endpoint, decode the JWT it returns, fill stores from the claims) need two things in a scenario: the cookie, so the check runs, and a mocked validate response carrying a token. `unsignedJwt(claims)` builds that token. It is UTF-8 safe, so names in any script decode correctly. It's unsigned (`alg: "none"`), so anything that verifies signatures rejects it. Build the scenario in code:
+
+```ts
+import { type ScenarioInput, startScenarios, unsignedJwt } from 'state-scenarios';
+import { cookiesAdapter } from 'state-scenarios/cookies';
+
+const signedIn: ScenarioInput = {
+  name: 'signed-in',
+  state: { cookies: { session: 'scenario' } }, // so the app's startup check runs
+  network: [{
+    method: 'POST',
+    path: '/api/auth/validate-token',
+    response: {
+      body: {
+        token: unsignedJwt({ sub: 'user-1', name: 'Amara Okafor', roles: ['admin'], exp: 4102444800 }),
+      },
+    },
+  }],
+};
+
+await startScenarios({ scenarios: [signedIn], adapters: [cookiesAdapter()] });
+```
+
+JSON scenarios then build on it with `"extends": "signed-in"`. Set `exp` in the future if the app checks expiry. Use whatever claim names your app reads.
+
+**Reuse the MSW handlers your tests already have.** Pass them by name, then list names in a scenario. They answer after its `network[]` entries and before your worker's handlers:
+
+```ts
+import { type ScenarioInput, startScenarios } from 'state-scenarios';
+import { statementsEmpty } from './test/handlers'; // the handlers your unit tests use
+
+const scenarios: ScenarioInput[] = [
+  { name: 'no-statements', handlers: ['statementsEmpty'], ready: 'text=No statements yet' },
+];
+
+await startScenarios({ scenarios, handlers: { statementsEmpty } });
+```
+
+```json
+{
+  "name": "no-statements",
+  "extends": "signed-in",
+  "handlers": ["statementsEmpty"],
+  "ready": "text=No statements yet"
+}
+```
+
+A value can be one handler or an array. A scenario that names an unknown handler fails to open and lists the known ones. `validate` in the CLI can't see handlers, so it checks only the JSON.
 
 State that lives inside a component (`useReducer`, `useState`, `useMachine`) connects with one hook. The Preact example wires both of its state engines this way:
 
@@ -173,9 +244,25 @@ The page reloads instead when:
 - **Edit current scenario:** edit the scenario as written, `extends` and all, and apply it.
 - Requests the scenario didn't cover appear in the panel.
 
-**Strict mode** (`strict: true`, or `?scenario-strict`, which links and in-place switches keep) answers any request the scenario doesn't cover with a 501, so it never reaches a real backend. Assets and page loads pass; list deliberate live requests in `allow`. `unhandledRequests(page)` returns the uncovered requests in either mode. `openScenario` and `openInlineScenario` run strict by default.
+**Strict mode** (`strict: true`, or `?scenario-strict`, which links and in-place switches keep) answers any request the scenario doesn't cover with a 501, so it never reaches a real backend. Assets and page loads pass; list deliberate live requests in `allow`, such as images from a CDN.
 
-**Recording** (`record: true`, or `?scenario-record`) lets requests reach your real backend and records every JSON response. Use the app, then click **Save as scenario**: the saved scenario carries the recorded responses as `network` entries, so it replays offline. Repeated calls to one endpoint become a `sequence` in call order, so "wrong code, then right code" replays as it happened. The saved scenario keeps the active scenario's mocks and adds the recorded responses after them. The panel button shows the recorded count. `examples/auth-flows` records a sign-in against a stand-in backend and replays it in strict mode.
+**Third-party SDKs** (analytics, error reporting, captcha, chat widgets) are noise in a scenario. Add them to `ignore`: they are never reported as unhandled, and in strict mode they get an empty `204` instead of a `501`, so most SDKs stay quiet and don't retry.
+
+```ts
+import { type ScenarioInput, startScenarios } from 'state-scenarios';
+
+declare const scenarios: ScenarioInput[];
+
+await startScenarios({
+  scenarios,
+  allow: ['images.example-cdn.com'], // reaches the real network, even in strict mode
+  ignore: [/posthog|segment|sentry|google-analytics|googletagmanager|recaptcha|hcaptcha|intercom/i],
+});
+```
+
+The list above is a starting point; match the hosts your app calls. An SDK that still complains (some expect a JSON body) is better left off in scenarios: `if (!currentSession()?.active) analytics.init(...)`. Scripts the SDK loads (`.js` files) pass as assets either way. `unhandledRequests(page)` returns the uncovered requests in either mode. `openScenario` and `openInlineScenario` run strict by default.
+
+**Recording** (`record: true`, or `?scenario-record`) lets requests reach your real backend and records every JSON response. Use the app, then click **Save as scenario**: the saved scenario carries the recorded responses as `network` entries, so it replays offline. Repeated calls to one endpoint become a `sequence` in call order, so "wrong code, then right code" replays as it happened. The saved scenario keeps the active scenario's mocks and adds the recorded responses after them. The panel button shows the recorded count. Recorded scenarios get committed, linked and pasted into chats, so recording keeps secrets out: values under secret-like keys (`password`, `secret`, `apiKey`, `token`, `sessionId` and similar) become `"[redacted]"`, and signed JWTs are re-issued unsigned with the same claims, so the app still decodes them and no server accepts them. Inside any string, `Bearer` and `Basic` credentials, passwords in URLs and signed URL params are redacted too. Secret query params such as `key` and `access_token` are left out. Saving a scenario applies the same rules to adapter state and URL params. The console lists each redacted field. Personal data such as names and emails is kept, so record with a test account. `examples/auth-flows` records a sign-in against a stand-in backend and replays it in strict mode.
 
 **Readiness:** the session sets `<html data-scenario="name" data-scenario-ready="selector">` once the scenario is active and async adapters have finished. The Playwright helpers wait for both, so a screenshot captures the state itself, deliberate loading states included.
 
@@ -208,25 +295,50 @@ await openInlineScenario(page, { name: 'one-off', extends: 'default', url: { q: 
 expect(await unhandledRequests(page)).toEqual([]);
 ```
 
-`{ path: '/orders/42' }` opens a route. `{ panel: false }` hides the dev panel before the app renders, for screenshots and videos in product docs; a later `openScenario` without it shows the panel again. [`examples/docs-walkthrough`](examples/docs-walkthrough) builds Markdown, GIFs and video from scenarios with [executable-stories](https://www.npmjs.com/package/executable-stories-playwright).
+`showCursor(page)` draws a pointer that follows Playwright's mouse, because recorded videos don't show one. Call it before `openScenario`. `{ path: '/orders/42' }` opens a route. `{ panel: false }` hides the dev panel before the app renders, for screenshots and videos in product docs; a later `openScenario` without it shows the panel again. [`examples/docs-walkthrough`](examples/docs-walkthrough) builds Markdown, GIFs and video from scenarios with [executable-stories](https://www.npmjs.com/package/executable-stories-playwright).
 
 ## CLI
 
 ```sh
-pnpm state-scenarios init                     # src/scenarios by default
+pnpm state-scenarios init                     # src/scenarios by default; also installs agent skills and the MCP server
+pnpm state-scenarios doctor examples/demo-react/scenarios --base-url http://localhost:5173   # is it wired up? each problem with its fix
+pnpm state-scenarios guide [topic]            # the agent skill for this version
+pnpm state-scenarios mcp examples/demo-react/scenarios --base-url http://localhost:5173      # MCP server for coding agents
 pnpm state-scenarios validate examples/demo-react/scenarios --rules examples/demo-react/rules.ts      # CI: everything resolves and passes rules
 pnpm state-scenarios list examples/demo-react/scenarios --base-url http://localhost:5173 [--json]
 pnpm state-scenarios shoot examples/demo-react/scenarios --base-url http://localhost:5173 --out shots [--json]
+pnpm state-scenarios shoot examples/demo-react/scenarios --base-url http://localhost:5173 --no-panel --viewport 1440x900 --scale 2 --color-scheme dark --locale ja-JP --timezone Asia/Tokyo
+pnpm state-scenarios record examples/demo-react/scenarios --base-url http://localhost:5173 --steps steps.ts --format mp4 [--element main]
 pnpm state-scenarios suggest examples/demo-react/scenarios --src examples/demo-react --rules examples/demo-react/rules.ts --schema examples/demo-react/scenario.schema.json
 pnpm state-scenarios promote examples/demo-react/scenarios   # move proposed/ into the catalog after review
 ```
 
-- **`init`** creates `<dir>/default.json` and a sibling `scenario.schema.json`, then prints a copy-paste wiring snippet (no entrypoint patching). Then wire it up, open `?scenario-record`, Mark ready and save.
-- **`shoot`** suits an agent checking a UI change. It opens every scenario (or `--only a,b`), waits for `ready`, saves a screenshot, and reports unmocked requests, uncaught exceptions and `console.error` calls. It exits non-zero on any of them. It ignores the browser's "Failed to load resource" logs, which error scenarios cause on purpose.
+- **`init`** creates `<dir>/default.json` and a sibling `scenario.schema.json`, then prints a copy-paste wiring snippet (no entrypoint patching). It also installs the agent skills (see [Coding agents](#coding-agents)) and registers the MCP server; `--no-skills` skips both. Then wire it up, open `?scenario-record`, Mark ready and save.
+- **`doctor`** checks the setup one step at a time and prints the fix for each problem: scenarios parse, the dev server answers, the MSW worker is served, a scenario becomes active and shows its `ready` selector, the panel can save into the project, ffmpeg is there for `record`, and the skills and MCP server are installed. It's read-only. Run it first whenever something looks off.
+- **`shoot`** suits an agent checking a UI change. It opens every scenario (or `--only a,b`), waits for `ready`, saves a screenshot, and reports unmocked requests, uncaught exceptions and `console.error` calls. It exits non-zero on any of them. It ignores the browser's "Failed to load resource" logs, which error scenarios cause on purpose. Each failed scenario gets `<out>/<name>.md`, a short page written for whoever fixes it: the codes, the link that reopens the state, whether the `ready` selector matched anything plus selectors on the page that would, unmocked requests as `network` entries ready to paste, and the errors.
+  - For docs and marketing images: `--no-panel` hides the panel, `--viewport 1440x900` and `--scale 2` set size and sharpness, `--color-scheme dark` switches theme, and `--element <selector>` captures one component instead of the page. A scenario's `viewport` overrides `--viewport`, so a phone layout and a desktop one shoot in the same run.
+  - For every market: `--locale` takes a BCP 47 tag (`en-GB`, `de-DE`, `ar-EG`, `hi-IN`, `pt-BR`) and `--timezone` an IANA zone (`Europe/Berlin`, `Asia/Kolkata`, `America/Sao_Paulo`). They set what `Intl`, `Date` and `navigator.language` report, so dates, numbers, currencies and right-to-left layouts render as people there see them. Without them, the browser uses the machine's settings, and shots differ between team members.
+- **`record`** turns scenarios into videos for docs and websites. `--steps` names a module whose default export maps scenario names to steps:
+
+  ```ts
+  // steps.ts: scenario name → what to do once it is ready
+  import type { Page } from '@playwright/test';
+
+  export default {
+    'search-no-results': async (page: Page) => {
+      await page.getByRole('searchbox').click();
+      await page.keyboard.type('Atlantis', { delay: 100 });
+    },
+  };
+  ```
+
+  Each scenario opens with the panel hidden and a drawn cursor, runs its steps, and holds the last frame briefly. The video starts once the scenario is ready, so the page load isn't in it. `--format mp4` (default) is H.264, which plays in every browser and phone and is a fraction of a GIF's size; prefer it on websites. `--format gif` is for places that only take images, such as READMEs. `--element <selector>` crops to one component. The browser flags above apply too, except `--scale`: Playwright records video at viewport size, so use a larger `--viewport` for a sharper video. mp4, gif and `--element` need [ffmpeg](https://ffmpeg.org/download.html) on `PATH`, or set `FFMPEG_PATH`. Uncropped `--format webm` needs no ffmpeg, but includes the page load.
 - **`suggest`** sends your source files and a summary of the catalog to a model; fixture bodies go as a count and a first item. The model lists **candidate** UI states, marks which existing scenarios cover them, and drafts scenarios for the gaps. The CLI rejects drafts that fail `--schema` (adapter state shapes included), the rules or an `extends` lookup, and says why. Valid drafts land in `<dir>/proposed/` for review, a folder `*.json` globs don't load. Prefer panel capture (record + Mark ready) for fixtures; treat suggest as ideation.
   - Default model: `claude-opus-5-5`, with server-side refusal fallback. It needs `ANTHROPIC_API_KEY` or `ant auth login`.
   - Other models: `--model` (or `STATE_SCENARIOS_MODEL`), with `ANTHROPIC_BASE_URL` pointing at an Anthropic-compatible proxy. `--env-file` loads those variables. The CLI drops Claude-only options for other models, and when a proxy rejects structured output it retries, asking for plain JSON.
 - **`promote`** moves `<dir>/proposed/*.json` into `<dir>` after each draft resolves (and passes `--rules`). Refuses duplicate names. `--dry-run` prints moves only.
+
+**Exit codes and error codes.** `0` ok, `1` a scenario failed, `2` bad arguments or scenarios, `3` something needed is missing or down (dev server, browser, ffmpeg, MSW worker). Errors print a stable code such as `[DEV_SERVER_DOWN]`, and `shoot --json` gives each scenario a `codes` list, so scripts and agents can branch without reading messages. `state-scenarios guide debugging` lists every code with its fix.
 
 ## Packages
 
@@ -234,7 +346,7 @@ pnpm state-scenarios promote examples/demo-react/scenarios   # move proposed/ in
 | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
 | [`state-scenarios`](packages/state-scenarios)             | Core: schema, runtime, panel, Playwright helper, store adapters (`/tanstack-query`, `/zustand`, `/redux`, `/xstate`) |
 | [`state-scenarios-react`](packages/state-scenarios-react) | `useScenarioState` for component state (React, Preact)                                                               |
-| [`state-scenarios-cli`](packages/state-scenarios-cli)     | `state-scenarios validate · list · shoot · suggest`                                                                  |
+| [`state-scenarios-cli`](packages/state-scenarios-cli)     | `state-scenarios validate · list · shoot · record · suggest`                                                         |
 
 Vue and Svelte hooks would be sibling packages (`state-scenarios-vue`, `state-scenarios-svelte`). The rest of the library has no framework dependency.
 
@@ -245,12 +357,32 @@ Vue and Svelte hooks would be sibling packages (`state-scenarios-vue`, `state-sc
 - **`examples/next-app/`** runs the session in a Next.js App Router layout: client fetches, URL params and cookies.
 - **`examples/demo-react/`** rebuilds the same app in React around an API. Its 13 scenario files cover network fixtures, sequences, cache seeding, strict mode and inheritance.
 
-## Agent skills
+## Coding agents
 
-`skills/` holds two skills for coding agents:
+Claude Code, Codex, Cursor and other coding agents use state-scenarios in three ways.
 
-- **`add-state-scenarios`** wires the library into an app: scenario files, the runtime, adapters and the editor schema.
-- **`verify-ui-with-scenarios`** checks a UI change across every scenario with `shoot`, and drafts scenarios for uncovered states with `suggest`.
+**Links.** Any browser tool opens a state directly with `?scenario=<name>&scenario-strict`, so an agent never has to click through the app to reach it. `list --json` prints every scenario with its link.
+
+**Skills.** The CLI package ships two skills, and `init` installs them into `.agents/skills/` (read by Codex, Cursor and others) with links from `.claude/skills/` for Claude Code. Rerun `init` after upgrading to update them. `state-scenarios guide [topic]` prints the same text from the installed package, so the guidance always matches the version.
+
+- **`state-scenarios`**: a short overview and rules, with topics loaded when needed: `setup`, `writing-scenarios`, `capture`, `auth`, `network`, `verify`, `media`, `mcp`, `debugging`.
+- **`create-scenario-map`**: maps each feature to its states (loading, empty, error, signed out…), marks which have scenarios, captures the most important missing ones, and proves the map with `shoot`. It writes a project-local `scenarios-<app>` skill. Run it with `/create-scenario-map`.
+
+For agents that need a pointer, add a line to `AGENTS.md` or `CLAUDE.md`: `UI states use state-scenarios; read .agents/skills/state-scenarios/SKILL.md before adding or checking one.`
+
+**MCP server.** `state-scenarios mcp <dir> --base-url <url>` gives an agent its own headless page on the running app. `init` registers it in `.mcp.json` and, when present, `.cursor/mcp.json`; for Codex, run `codex mcp add state-scenarios -- npx state-scenarios mcp src/scenarios --base-url http://localhost:5173`.
+
+| Tool                         | Does                                                                                                          |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `list_scenarios`, `validate` | The catalog with links; problems in it                                                                        |
+| `open_scenario`              | Opens a scenario in strict mode, waits for `ready`, returns codes, unmocked requests, errors and a screenshot |
+| `open_app`                   | Opens a path without a scenario; `record: true` records real responses                                        |
+| `observe`, `screenshot`      | The page as an accessibility tree, or as a PNG                                                                |
+| `click`, `fill`, `press`     | Act on the page with Playwright selectors                                                                     |
+| `check_ready`                | Whether a selector matches and is visible now, plus selectors that would                                      |
+| `save_scenario`              | Writes what the app shows as `<dir>/<name>.json`; with `extends`, only the differences                        |
+
+So an agent can open the app, drive it into a state, check the `ready` selector, save the scenario, and reopen it to prove it replays offline, without the panel. Each tool runs through `startScenarios` in the page, so the app needs this version of `state-scenarios`.
 
 ## Development
 
@@ -262,13 +394,15 @@ pnpm build            # all packages (tsup + tsc declarations, via turbo)
 pnpm lint             # oxlint (type-aware, anti-slop rules) + dprint check
 pnpm lint:fix         # autofix, then format
 pnpm typecheck
-pnpm test             # unit: schema, inheritance, rules, JSON Schema ↔ Zod, adapters, runtime, suggest
+pnpm test             # unit: schema, inheritance, rules, JSON Schema ↔ Zod, adapters, runtime, suggest, docs examples
 pnpm test:e2e         # Playwright: demo, the save-and-share workflow, the Preact app, visual baselines
 pnpm test:e2e:update  # accept intended visual changes
 pnpm schema           # regenerate examples/demo-react/scenario.schema.json (a test fails if it's stale)
 pnpm quality          # build, lint, typecheck, test, test:e2e
 pnpm changeset        # describe a change; `pnpm release` builds and publishes
 ```
+
+Code blocks in this README and the skills that show `docs/examples/*.ts` are copies of those files, which `pnpm typecheck` compiles; a test fails when a copy drifts. Edit the file, then the copies.
 
 Lint runs oxlint with type-aware rules and the vendored [anti-slop](tools/oxlint/anti-slop/UPSTREAM.md) plugin at `error`, with `--deny-warnings`. The rules push unknown input through a schema at its boundary and forbid unchecked type assertions, so the code above has no `as` casts outside `as const`. dprint formats TypeScript, JSON and Markdown.
 

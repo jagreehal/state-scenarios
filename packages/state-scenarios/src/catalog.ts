@@ -109,9 +109,16 @@ function merge(base: Scenario, over: Scenario): Scenario {
       ...(over.network ?? []).filter((e) => !e.remove),
       ...(base.network ?? []).filter((e) => !overKeys.has(routeKey(e))),
     ],
+    handlers: union(over.handlers, base.handlers),
     state: mergeObjects(base.state ?? {}, over.state ?? {}),
   };
 }
+
+const union = (a: string[] = [], b: string[] = []) => {
+  const all = [...new Set([...a, ...b])];
+
+  return all.length ? all : undefined;
+};
 
 const isJsonObject = (value: Json | undefined): value is JsonObject =>
   value instanceof Object && !Array.isArray(value);
@@ -146,14 +153,17 @@ export function diffScenario(captured: Scenario, base?: Scenario): ScenarioInput
       path: captured.path,
       url: captured.url,
       network: captured.network,
+      handlers: captured.handlers,
       state: captured.state,
       ready: captured.ready,
+      viewport: captured.viewport,
     });
   }
 
   const url = diffUrl(base.url, captured.url);
   const network = diffNetwork(base.network ?? [], captured.network ?? []);
   const state = diffObjects(base.state ?? {}, captured.state ?? {});
+  const handlers = diffHandlers(base.handlers ?? [], captured.handlers ?? []);
 
   return compactScenario({
     name: captured.name,
@@ -163,9 +173,26 @@ export function diffScenario(captured: Scenario, base?: Scenario): ScenarioInput
     path: captured.path !== base.path ? captured.path : undefined,
     url,
     network: network.length ? network : undefined,
+    handlers,
     state,
     ready: captured.ready,
+    viewport: jsonEqual(captured.viewport ?? null, base.viewport ?? null) ? undefined : captured.viewport,
   });
+}
+
+/**
+ * The shortest own list that `extends` merges back into `captured`, order included: merge puts
+ * the child's handlers first, then the base's it didn't name. Handler order is precedence.
+ */
+function diffHandlers(base: string[], captured: string[]): string[] | undefined {
+  for (let k = 0; k <= captured.length; k++) {
+    const own = captured.slice(0, k);
+
+    if (JSON.stringify(union(own, base)) === JSON.stringify(captured)) return own.length ? own : undefined;
+  }
+
+  // An inherited handler can't be removed: keep the captured order and let the base's extras follow.
+  return captured.length ? captured : undefined;
 }
 
 function diffUrl(
@@ -259,9 +286,13 @@ function compactScenario(s: ScenarioInput): ScenarioInput {
 
   if (s.network !== undefined && s.network.length) out.network = s.network;
 
+  if (s.handlers !== undefined && s.handlers.length) out.handlers = s.handlers;
+
   if (s.state !== undefined && Object.keys(s.state).length) out.state = s.state;
 
   if (s.ready !== undefined) out.ready = s.ready;
+
+  if (s.viewport !== undefined) out.viewport = s.viewport;
 
   return out;
 }
