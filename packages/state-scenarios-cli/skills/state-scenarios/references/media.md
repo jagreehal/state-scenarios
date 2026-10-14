@@ -26,6 +26,13 @@ export default {
     await page.getByRole('searchbox').click();
     await page.keyboard.type('Atlantis', { delay: 100 });
   },
+  // { element, steps } crops this scenario's video to one component; it overrides --element.
+  'cart-empty': {
+    element: '.cart',
+    steps: async (page: Page) => {
+      await page.getByRole('link', { name: 'Browse products' }).hover();
+    },
+  },
 };
 ```
 
@@ -35,15 +42,18 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
 
 - The panel is hidden and a cursor is drawn (Playwright videos don't show the mouse). Actions are
   slowed slightly so the cursor reaches each target before the click.
-- The video starts once the scenario is ready and holds the last frame briefly. Uncropped
+- The video starts once the scenario is ready and holds the last frame for `--hold` ms (default
+  800), so there's no need for a `waitForTimeout` at the end of steps. Uncropped
   `--format webm` is the exception: it keeps the page load, and needs no ffmpeg.
 - `--format mp4` (default) plays in every browser and phone at a fraction of a GIF's size; use it
   on websites. `--format gif` for READMEs and other image-only places. `--element` crops: the
   element is scrolled into view first, and one larger than the viewport is cut to the visible part
   (use a larger `--viewport`). Steps that scroll the page move the element out of the crop.
+- For website GIFs, `--width 900` caps the width and `--fps 10` lowers the frame rate (GIFs default to
+  12); both cut file size.
 - Video records at viewport size, so use a larger `--viewport` for sharper video; `--scale`
   affects screenshots only.
-- MP4, GIF and `--element` need ffmpeg on `PATH`, or `FFMPEG_PATH`. Uncropped WebM doesn't.
+- MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg on `PATH`, or `FFMPEG_PATH`. WebM without them doesn't.
 - In your own Playwright scripts, `showCursor(page)` from `state-scenarios/playwright` draws the
   cursor; call it before `openScenario(page, name, { panel: false })`.
 

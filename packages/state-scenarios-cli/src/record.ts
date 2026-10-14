@@ -34,19 +34,28 @@ const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
  * generated palette, which keeps it sharp at a fraction of the naive size.
  */
 export function ffmpegArgs(
-  { input, output, format, start, crop }: {
+  { input, output, format, start, crop, fps, width }: {
     input: string;
     output: string;
     format: VideoFormat;
     /** Seconds to skip, e.g. the page loading before the steps begin. */
     start: number;
     crop?: Crop;
+    /** Frames per second; GIFs default to 12. */
+    fps?: number;
+    /** Maximum output width in pixels, never upscaled; height follows the aspect ratio. */
+    width?: number;
   },
 ): string[] {
+  const rate = fps ?? (format === 'gif' ? 12 : undefined);
+
   // yuv420p needs even sizes.
-  const filters = crop
-    ? [`crop=${even(crop.width)}:${even(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`]
-    : [];
+  const filters = [
+    crop && `crop=${even(crop.width)}:${even(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`,
+    rate && `fps=${rate}`,
+    // Quoted so the comma in min() isn't read as a filter separator.
+    width && `scale='trunc(min(${width},iw)/2)*2':-2:flags=lanczos`,
+  ].filter(Boolean);
 
   const codec = {
     mp4: ['-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-crf', '23', '-movflags', '+faststart'],
@@ -55,9 +64,7 @@ export function ffmpegArgs(
   }[format];
 
   const vf = format === 'gif'
-    ? `${
-      [...filters, 'fps=12'].join(',')
-    },split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer`
+    ? `${filters.join(',')},split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer`
     : filters.join(',');
 
   return [
@@ -76,11 +83,11 @@ export function ffmpegArgs(
 }
 
 /**
- * Convert Playwright's WebM into the requested format. Uncropped WebM is copied as recorded
- * (page load included), so it works without ffmpeg.
+ * Convert Playwright's WebM into the requested format. WebM without a crop, --fps or --width is
+ * copied as recorded (page load included), so it works without ffmpeg.
  */
 export function encodeVideo(options: Parameters<typeof ffmpegArgs>[0]) {
-  if (options.format === 'webm' && !options.crop) {
+  if (options.format === 'webm' && !options.crop && !options.fps && !options.width) {
     copyFileSync(options.input, options.output);
 
     return;
@@ -94,7 +101,7 @@ export function encodeVideo(options: Parameters<typeof ffmpegArgs>[0]) {
     throw new CliError(
       'FFMPEG_MISSING',
       `record needs ffmpeg for ${options.format}${
-        options.crop ? ' and --element' : ''
+        options.format === 'webm' ? ' with --element, --fps or --width' : ''
       }: install it (https://ffmpeg.org/download.html) or set FFMPEG_PATH`,
     );
   }

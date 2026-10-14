@@ -329,10 +329,17 @@ pnpm state-scenarios promote examples/demo-react/scenarios   # move proposed/ in
       await page.getByRole('searchbox').click();
       await page.keyboard.type('Atlantis', { delay: 100 });
     },
+    // { element, steps } crops this scenario's video to one component; it overrides --element.
+    'cart-empty': {
+      element: '.cart',
+      steps: async (page: Page) => {
+        await page.getByRole('link', { name: 'Browse products' }).hover();
+      },
+    },
   };
   ```
 
-  Each scenario opens with the panel hidden and a drawn cursor, runs its steps, and holds the last frame briefly. The video starts once the scenario is ready, so the page load isn't in it. `--format mp4` (default) is H.264, which plays in every browser and phone and is a fraction of a GIF's size; prefer it on websites. `--format gif` is for places that only take images, such as READMEs. `--element <selector>` crops to one component. The browser flags above apply too, except `--scale`: Playwright records video at viewport size, so use a larger `--viewport` for a sharper video. mp4, gif and `--element` need [ffmpeg](https://ffmpeg.org/download.html) on `PATH`, or set `FFMPEG_PATH`. Uncropped `--format webm` needs no ffmpeg, but includes the page load.
+  Each scenario opens with the panel hidden and a drawn cursor, runs its steps, and holds the last frame for `--hold` ms (default 800). The video starts once the scenario is ready, so the page load isn't in it. `--format mp4` (default) is H.264, which plays in every browser and phone and is a fraction of a GIF's size; prefer it on websites. `--format gif` is for places that only take images, such as READMEs. `--element <selector>` crops to one component. For smaller files, `--fps` sets the frame rate (GIFs default to 12) and `--width 900` caps the width. The browser flags above apply too, except `--scale`: Playwright records video at viewport size, so use a larger `--viewport` for a sharper video. mp4, gif, `--element`, `--fps` and `--width` need [ffmpeg](https://ffmpeg.org/download.html) on `PATH`, or set `FFMPEG_PATH`. `--format webm` without those three needs no ffmpeg, but includes the page load.
 - **`suggest`** sends your source files and a summary of the catalog to a model; fixture bodies go as a count and a first item. The model lists **candidate** UI states, marks which existing scenarios cover them, and drafts scenarios for the gaps. The CLI rejects drafts that fail `--schema` (adapter state shapes included), the rules or an `extends` lookup, and says why. Valid drafts land in `<dir>/proposed/` for review, a folder `*.json` globs don't load. Prefer panel capture (record + Mark ready) for fixtures; treat suggest as ideation.
   - Default model: `claude-opus-5-5`, with server-side refusal fallback. It needs `ANTHROPIC_API_KEY` or `ant auth login`.
   - Other models: `--model` (or `STATE_SCENARIOS_MODEL`), with `ANTHROPIC_BASE_URL` pointing at an Anthropic-compatible proxy. `--env-file` loads those variables. The CLI drops Claude-only options for other models, and when a proxy rejects structured output it retries, asking for plain JSON.
