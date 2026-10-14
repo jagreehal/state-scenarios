@@ -29,8 +29,10 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
              Each failed scenario gets <out>/<name>.md: what failed and how to fix it
   record     Open each scenario that has steps, run them, and save a video with a visible cursor.
              --base-url and --steps (required): a module whose default export maps scenario names
-             to async (page) => {} steps. --format mp4 (default), gif or webm; --out, --only, --element.
-             mp4, gif and --element need ffmpeg on PATH (or FFMPEG_PATH)
+             to async (page) => {} steps, or to { element, steps } to crop that one scenario.
+             --format mp4 (default), gif or webm; --out, --only, --element, --fps (gif default 12),
+             --width <px> to downscale, --hold <ms> on the last frame (default 800).
+             mp4, gif, --element, --fps and --width need ffmpeg on PATH (or FFMPEG_PATH)
   suggest    Ask Claude which UI states lack scenarios and draft them into --out (default <dir>/proposed).
              --src dir[,dir] (required), --schema file, --max n, --model (default $STATE_SCENARIOS_MODEL or claude-opus-5-5).
              Needs ANTHROPIC_API_KEY or \`ant auth login\`; ANTHROPIC_BASE_URL points it at a compatible proxy.
@@ -59,6 +61,9 @@ const { positionals, values } = parseArgs({
     timezone: { type: 'string' },
     steps: { type: 'string' },
     format: { type: 'string' },
+    fps: { type: 'string' },
+    width: { type: 'string' },
+    hold: { type: 'string' },
     json: { type: 'boolean' },
     src: { type: 'string' },
     schema: { type: 'string' },
@@ -71,11 +76,31 @@ const { positionals, values } = parseArgs({
   },
 });
 
-/** `--steps` module: scenario name to the steps recorded after it opens. */
+const Steps = z.function({ input: [z.custom<Page>()], output: z.unknown() });
+
+/** `--steps` module: scenario name to the steps recorded after it opens, or to `{ element, steps }`. */
 const StepsSchema = z.record(
   z.string(),
-  z.function({ input: [z.custom<Page>()], output: z.unknown() }),
+  z.union([
+    Steps.transform((steps) => ({ steps, element: undefined })),
+    z.object({
+      element: z.string().optional(),
+      steps: Steps,
+    }),
+  ]),
 );
+
+/** A number flag, undefined when not passed. */
+const positive = (flag: 'fps' | 'width' | 'hold') => {
+  const text = values[flag];
+  const n = Number(text);
+
+  if (text !== undefined && !(Number.isFinite(n) && n > 0)) {
+    throw new CliError('INVALID_ARGUMENT', `--${flag} must be a positive number, not "${text}"`);
+  }
+
+  return text === undefined ? undefined : n;
+};
 
 const [command, dir = command === 'init' ? 'src/scenarios' : undefined] = positionals;
 
@@ -339,6 +364,9 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         if (!catalog.get(n)) throw new CliError('UNKNOWN_SCENARIO', `--steps names unknown scenario "${n}"`);
       }
 
+      const fps = positive('fps');
+      const width = positive('width');
+      const hold = positive('hold') ?? 800;
       const out = values.out ?? 'scenario-videos';
       mkdirSync(out, { recursive: true });
       const raw = mkdtempSync(join(tmpdir(), 'state-scenarios-'));
@@ -365,11 +393,11 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
 
         const visible = box && visibleCrop(box, viewport);
 
-        if (!visible) throw new CliError('ELEMENT_NOT_FOUND', `--element "${selector}" isn't visible`);
+        if (!visible) throw new CliError('ELEMENT_NOT_FOUND', `element "${selector}" isn't visible`);
 
         if (visible.clipped) {
           console.log(
-            `  --element "${selector}" (${Math.round(box.width)}x${
+            `  element "${selector}" (${Math.round(box.width)}x${
               Math.round(box.height)
             }) is larger than the viewport; `
               + `the video shows the visible part. Use a larger --viewport to fit it.`,
@@ -379,7 +407,8 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         return visible.crop;
       };
 
-      for (const [name, run] of Object.entries(steps).filter(([n]) => names.includes(n))) {
+      for (const [name, entry] of Object.entries(steps).filter(([n]) => names.includes(n))) {
+        const { element = values.element, steps: run } = entry;
         const resolved = catalog.resolve(catalog.get(name) ?? { name });
         const options = contextOptions(resolved, values);
 
@@ -397,19 +426,19 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         try {
           await showCursor(page);
           await openScenario(page, name, { path: resolved.path, strict: !values['no-strict'], panel: false });
-          const crop = values.element ? await cropTo(page, values.element, options.viewport) : undefined;
+          const crop = element ? await cropTo(page, element, options.viewport) : undefined;
 
           const start = (Date.now() - began) / 1000;
           await Promise.resolve(run(page)).catch((err: Error) => {
             throw new CliError('STEPS_FAILED', `steps failed: ${err.message.split('\n')[0]}`);
           });
-          await page.waitForTimeout(800); // hold the final frame
+          await page.waitForTimeout(hold); // hold the final frame
           await context.close();
 
           const video = page.video();
 
           if (!video) throw new Error('Playwright recorded no video');
-          encodeVideo({ input: await video.path(), output: file, format, start, crop });
+          encodeVideo({ input: await video.path(), output: file, format, start, crop, fps, width });
           console.log(`✓ ${name.padEnd(32)} ${file}`);
         } catch (err) {
           exitCode = Math.max(exitCode, err instanceof CliError ? err.exitCode : 1);

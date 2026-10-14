@@ -75,6 +75,27 @@ describe('ffmpegArgs', () => {
       'fps=12,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer',
     );
   });
+
+  it('sets the frame rate and downscales to an even width, never above the input, after the crop', () => {
+    const vf = (format: 'gif' | 'mp4') => {
+      const args = ffmpegArgs({
+        input: 'in.webm',
+        output: `out.${format}`,
+        format,
+        start: 0,
+        crop: { x: 0, y: 0, width: 1200, height: 800 },
+        fps: 10,
+        width: 901,
+      });
+
+      return args[args.indexOf('-vf') + 1];
+    };
+
+    expect(vf('mp4')).toBe("crop=1200:800:0:0,fps=10,scale='trunc(min(901,iw)/2)*2':-2:flags=lanczos");
+    expect(vf('gif')).toMatch(
+      /^crop=1200:800:0:0,fps=10,scale='trunc\(min\(901,iw\)\/2\)\*2':-2:flags=lanczos,split/,
+    );
+  });
 });
 
 describe('redactSecrets', () => {

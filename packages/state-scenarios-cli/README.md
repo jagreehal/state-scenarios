@@ -16,5 +16,5 @@ npx state-scenarios suggest scenarios --src src --schema scenario.schema.json
 - `shoot` opens every scenario in Chromium, waits until it's ready, and saves a screenshot. It fails on unmocked requests, uncaught exceptions and `console.error` calls, and writes `<out>/<name>.md` for each failure with the fix. It needs `@playwright/test`.
 - `doctor` checks the wiring one step at a time and prints each fix. `mcp` lets a coding agent open, drive and save scenarios. `guide` prints the shipped agent skill.
 - Exit codes: `1` a scenario failed, `2` bad arguments or scenarios, `3` something needed is missing or down. Errors print a stable code, e.g. `[DEV_SERVER_DOWN]`.
-- `record` opens each scenario named in `--steps`, runs its steps with a visible cursor, and saves an MP4, GIF or WebM, optionally cropped to `--element`. MP4, GIF and cropping need ffmpeg.
+- `record` opens each scenario named in `--steps`, runs its steps with a visible cursor, and saves an MP4, GIF or WebM, optionally cropped to `--element` (or per scenario with `{ element, steps }`). `--fps`, `--width` and `--hold <ms>` tune size and the final frame. MP4, GIF, cropping, `--fps` and `--width` need ffmpeg.
 - `suggest` asks Claude, or another model behind `ANTHROPIC_BASE_URL` via `--model`, which UI states lack scenarios, and drafts them for review.
