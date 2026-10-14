@@ -29,7 +29,7 @@
     "dprint": "0.60.1",
     "happy-dom": "^20.14.6",
     "msw": "3.0.2",
-    "oxlint": "1.86.0",
+    "oxlint": "1.87.0",
     "oxlint-tsgolint": "7.0.2003",
     "redux": "5.0.1",
     "state-scenarios": "workspace:*",
