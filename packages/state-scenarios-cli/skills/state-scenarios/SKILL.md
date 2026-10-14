@@ -57,7 +57,7 @@ Read the topic for the job before you start. The files sit next to this one, and
 | `auth`              | [references/auth.md](references/auth.md)                           | Signed-in and signed-out states, cookies, apps that validate a token on startup                      |
 | `network`           | [references/network.md](references/network.md)                     | Strict mode, `allow`, `ignore` for analytics, an existing MSW setup, named handlers                  |
 | `verify`            | [references/verify.md](references/verify.md)                       | Checking a UI change across every state with `shoot`, reading failure pages, PR evidence             |
-| `media`             | [references/media.md](references/media.md)                         | Screenshots and videos for docs and websites: viewports, dark mode, locales, `record`                |
+| `media`             | [references/media.md](references/media.md)                         | Screenshots and videos for docs and websites: viewports, dark mode, locales, `record`, Remotion      |
 | `mcp`               | [references/mcp.md](references/mcp.md)                             | Driving the live app from a coding agent: open, observe, act, check ready, save                      |
 | `debugging`         | [references/debugging.md](references/debugging.md)                 | Something fails: `doctor`, error codes and exit codes, common causes                                 |
 

@@ -16,6 +16,7 @@
     "e2e",
     "examples/demo-react",
     "examples/auth-flows",
+    "examples/remotion-promo",
     "playwright.config.ts",
     "vitest.config.ts",
     "docs/examples"

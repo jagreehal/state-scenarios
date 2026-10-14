@@ -1,0 +1,21 @@
+{
+  "name": "remotion-promo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "clips": "state-scenarios record ../demo-react/scenarios --base-url http://localhost:5173 --steps steps.ts --out public/clips --hold 1500",
+    "studio": "remotion studio",
+    "render": "remotion render Promo out/promo.mp4"
+  },
+  "dependencies": {
+    "@remotion/media": "4.0.535",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "remotion": "4.0.535"
+  },
+  "devDependencies": {
+    "@remotion/cli": "4.0.535",
+    "@types/react": "19.3.0",
+    "state-scenarios-cli": "workspace:*"
+  }
+}

@@ -32,6 +32,7 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
              to async (page) => {} steps, or to { element, steps } to crop that one scenario.
              --format mp4 (default), gif or webm; --out, --only, --element, --fps (gif default 12),
              --width <px> to downscale, --hold <ms> on the last frame (default 800).
+             Writes <name>.video.json next to each video: size, length, description and clicks.
              mp4, gif, --element, --fps and --width need ffmpeg on PATH (or FFMPEG_PATH)
   suggest    Ask Claude which UI states lack scenarios and draft them into --out (default <dir>/proposed).
              --src dir[,dir] (required), --schema file, --max n, --model (default $STATE_SCENARIOS_MODEL or claude-opus-5-5).
@@ -41,6 +42,13 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
 
 Common: --rules file   module exporting \`rules\` (ScenarioRule[])
         --json         machine-readable output (list, shoot, doctor)`;
+
+declare global {
+  interface Window {
+    /** Set by record: reports each pointerdown for the video's manifest. */
+    stateScenariosClick(x: number, y: number): void;
+  }
+}
 
 const MAX_SOURCE_CHARS = 800_000;
 
@@ -373,7 +381,7 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
 
       await checkServer(baseURL);
       const { openScenario, showCursor } = await import('state-scenarios/playwright');
-      const { encodeVideo, visibleCrop } = await import('./record.js');
+      const { encodeVideo, pagePoint, videoManifest, visibleCrop } = await import('./record.js');
       // slowMo gives the drawn cursor time to glide to each target before the click lands.
       const browser = await launchChromium({ slowMo: 150 });
       let exitCode = 0;
@@ -422,9 +430,22 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         const page = await context.newPage();
         const began = Date.now();
         const file = join(out, `${name}.${format}`);
+        const clicks: Promise<{ at: number; x: number; y: number; } | undefined>[] = [];
 
         try {
           await showCursor(page);
+          // Clicks go in the video's manifest, for editors that zoom to them. The listener runs in
+          // every frame, so iframe clicks map through the iframe's place and scale; a detached one drops.
+          await page.exposeBinding('stateScenariosClick', ({ frame }, x: number, y: number) => {
+            const at = Date.now();
+
+            clicks.push(
+              pagePoint(frame, x, y).then((point) => ({ at, ...point }), () => undefined),
+            );
+          });
+          await page.addInitScript(() => {
+            addEventListener('pointerdown', (e) => window.stateScenariosClick(e.clientX, e.clientY), true);
+          });
           await openScenario(page, name, { path: resolved.path, strict: !values['no-strict'], panel: false });
           const crop = element ? await cropTo(page, element, options.viewport) : undefined;
 
@@ -433,12 +454,36 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
             throw new CliError('STEPS_FAILED', `steps failed: ${err.message.split('\n')[0]}`);
           });
           await page.waitForTimeout(hold); // hold the final frame
+          const end = Date.now();
           await context.close();
 
           const video = page.video();
 
           if (!video) throw new Error('Playwright recorded no video');
-          encodeVideo({ input: await video.path(), output: file, format, start, crop, fps, width });
+
+          const trimmed = encodeVideo({
+            input: await video.path(),
+            output: file,
+            format,
+            start,
+            crop,
+            fps,
+            width,
+          });
+
+          const manifest = videoManifest({
+            name,
+            description: resolved.description,
+            video: `${name}.${format}`,
+            viewport: options.viewport,
+            crop,
+            width,
+            start: began + trimmed.start * 1000,
+            end,
+            clicks: (await Promise.all(clicks)).filter((c) => c !== undefined),
+          });
+
+          writeFileSync(join(out, `${name}.video.json`), `${JSON.stringify(manifest, null, 2)}\n`);
           console.log(`✓ ${name.padEnd(32)} ${file}`);
         } catch (err) {
           exitCode = Math.max(exitCode, err instanceof CliError ? err.exitCode : 1);
