@@ -20,6 +20,6 @@
     "@vitejs/plugin-react": "^6.0.0",
     "emulate": "0.12.1",
     "msw": "3.0.2",
-    "vite": "8.3.2"
+    "vite": "8.3.4"
   }
 }

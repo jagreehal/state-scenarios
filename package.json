@@ -36,7 +36,7 @@
     "state-scenarios-cli": "workspace:*",
     "turbo": "^2.5.0",
     "typescript": "7.0.2",
-    "vite": "8.3.2",
+    "vite": "8.3.4",
     "vitest": "5.0.3",
     "xstate": "5.33.2",
     "zod": "4.6.5",
