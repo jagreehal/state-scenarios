@@ -111,7 +111,9 @@ the PRs are consistently good (bigger batch, daily cadence).
 - Standing feedback goes in the memory file, not in the prompt: the prompt is the job, the memory
   is what reviewers taught it.
 - Treat the agent's job as untrusted. It gets a read-only token and an explicit tool list, and hands
-  over a patch. A separate `verify` job on a fresh runner refuses any patch that touches more than
+  over a patch. The tool list narrows what it does but isn't a sandbox: it can write files, and
+  CLI flags such as `--rules` load JavaScript, so assume it can run code and read its own job's
+  environment (the agent's API key is there anyway). Never give that job secrets beyond the agent's. A separate `verify` job on a fresh runner refuses any patch that touches more than
   scenario JSON and map Markdown, then checks it with the default branch's own install and code, so
   nothing the agent wrote can run there or fake a result. Only `open-pr`, which runs nothing but git
   and gh, can write. Keep that split when adapting the workflow; widen the tool list only for a

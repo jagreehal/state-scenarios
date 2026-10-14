@@ -1,7 +1,7 @@
 // pr-screenshots: shoot the states a pull request touches on its base and its head, publish the
 // differences, and post them as one PR comment. Run by action.yml; inputs arrive as INPUT_* env.
 import { execSync, spawn } from 'node:child_process';
-import { appendFileSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildComment, MARKER } from './comment.mjs';
@@ -29,6 +29,8 @@ const shootAll = input('all-when-unmatched', 'true') === 'true';
 const failOnError = input('fail-on-error', 'true') === 'true';
 
 const work = input('out') || mkdtempSync(join(tmpdir(), 'pr-screenshots-'));
+
+mkdirSync(work, { recursive: true });
 
 const run = (cmd) => execSync(cmd, { stdio: 'inherit', shell: '/bin/bash' });
 
@@ -203,7 +205,7 @@ if (!fork && input('comment', 'true') === 'true') {
 
   const existing = read(
     `gh api --paginate repos/${repo}/issues/${pr.number}/comments --jq ${
-      quote(`.[] | select(.body | contains("${MARKER}")) | .id`)
+      quote(`.[] | select(.user.login == "github-actions[bot]" and (.body | contains("${MARKER}"))) | .id`)
     }`,
   ).trim().split('\n')[0];
 

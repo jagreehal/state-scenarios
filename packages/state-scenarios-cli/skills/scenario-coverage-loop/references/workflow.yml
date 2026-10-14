@@ -94,12 +94,13 @@ jobs:
           PROMPT="${PROMPT/\$SELECTED/$(cat /tmp/selected.md)}"
           PROMPT="${PROMPT/\$MEMORY/$(cat .github/agent-memory/scenario-coverage.md)}"
 
-          # An explicit tool list rather than a permission bypass. Even so, treat everything this
-          # job produces as untrusted: the verify job decides what's kept.
+          # An explicit tool list rather than a permission bypass. It isn't a sandbox: --rules and
+          # --steps load JavaScript, and the agent can write files, so it can run code here. That's
+          # why this job holds no write token and the verify job decides what's kept.
           npx -y @anthropic-ai/claude-code -p "$PROMPT" \
             --mcp-config .mcp.json \
             --permission-mode acceptEdits \
-            --allowedTools "Read,Edit,Write,Glob,Grep,mcp__state-scenarios,Bash(npx state-scenarios:*),Bash(git status:*),Bash(git diff:*)" \
+            --allowedTools "Read,Edit,Write,Glob,Grep,mcp__state-scenarios,Bash(npx state-scenarios validate:*),Bash(npx state-scenarios coverage:*),Bash(npx state-scenarios list:*),Bash(npx state-scenarios shoot:*),Bash(git status:*),Bash(git diff:*)" \
             --max-turns 80 \
             --output-format stream-json --verbose \
             2>&1 | tee /tmp/agent.jsonl

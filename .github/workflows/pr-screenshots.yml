@@ -1,0 +1,40 @@
+name: PR screenshots
+
+# The repo's own use of actions/pr-screenshots: before and after images of the demo app's states.
+on:
+  pull_request:
+    paths:
+      - examples/demo-react/**
+      - packages/state-scenarios/src/**
+
+permissions:
+  contents: write # push the images to the scenario-shots branch
+  pull-requests: write # comment on the PR
+
+concurrency:
+  group: pr-screenshots-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # affected needs the base's history
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+
+      - run: corepack enable
+
+      - uses: ./actions/pr-screenshots
+        with:
+          scenarios: examples/demo-react/scenarios
+          src: examples/demo-react
+          install-command: pnpm install --frozen-lockfile && pnpm build && pnpm exec playwright install --with-deps chromium
+          dev-command: pnpm --filter demo-react exec vite --port 5179 --strictPort
+          base-url: http://localhost:5179
+          cli: pnpm exec state-scenarios
+          shoot-args: --no-panel

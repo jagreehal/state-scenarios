@@ -369,6 +369,42 @@ Vue and Svelte hooks would be sibling packages (`state-scenarios-vue`, `state-sc
 - **`examples/demo-react/`** rebuilds the same app in React around an API. Its 13 scenario files cover network fixtures, sequences, cache seeding, strict mode and inheritance.
 - **`examples/remotion-promo/`** records three demo-react scenarios with `record` and edits them into a promo video with [Remotion](https://www.remotion.dev): a title card, a zoom to each click from the video manifests, and a caption per scenario.
 
+## Screenshots on every pull request
+
+`actions/pr-screenshots` is a GitHub Action that shows each pull request's UI change in a comment. It runs `affected` to pick the states the PR touches, shoots them on the base and on the change, publishes what changed to a `scenario-shots` branch, and posts one comment with before, after and changed-pixel images. Pushing again updates the comment. It needs no model or API key.
+
+```yaml
+on: pull_request
+
+permissions:
+  contents: write # push the images to the scenario-shots branch
+  pull-requests: write # comment on the PR
+
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: jagreehal/state-scenarios/actions/pr-screenshots@main
+        with:
+          scenarios: src/scenarios
+          dev-command: npm run dev
+          base-url: http://localhost:5173
+```
+
+- It installs and starts the app twice, base then change, with `install-command` (default `npm ci` plus Chromium) and `dev-command`, and stops the dev server each time.
+- When a changed file maps to no scenario (a stylesheet, a layout), it shoots every state (`all-when-unmatched: 'false'` turns that off). `src` limits it to the app's folders in a monorepo; `shoot-args` passes flags such as `--no-panel --viewport 1280x800` to both sides.
+- It fails when a touched state fails on the change (`fail-on-error: 'false'` to only report). The job summary has the comment, and the run's `pr-screenshots` artifact has every image.
+- Pull requests from forks get a read-only token, so they get the summary and the artifact, not a comment.
+- It runs the pull request's code, as any `pull_request` workflow does. Don't run it on `pull_request_target`.
+
+This repository runs it on the demo app: [`.github/workflows/pr-screenshots.yml`](.github/workflows/pr-screenshots.yml).
+
 ## Coding agents
 
 Claude Code, Codex, Cursor and other coding agents use state-scenarios in three ways.

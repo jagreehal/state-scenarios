@@ -14,6 +14,10 @@ A reviewer of a UI change needs to see it. This skill finds the states the branc
 them before and after, publishes the images, and writes a short PR body around them. Write as one
 person to another: plain words, no jargon, nothing a screenshot already says.
 
+For the images alone on every PR, without an agent, the repository's GitHub Action
+`jagreehal/state-scenarios/actions/pr-screenshots` posts them as a comment (see the README). This
+skill adds the written description around them.
+
 The `state-scenarios` skill is the reference for the library; its topic `verify` covers every
 command used here. Read it first (`npx state-scenarios guide verify`).
 
