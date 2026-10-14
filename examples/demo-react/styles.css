@@ -48,3 +48,4 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .pages button { min-width: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
 .pages button[aria-current] { background: var(--accent); border-color: var(--accent); color: var(--bg); }
 .fatal { margin: 16px; padding: 16px; white-space: pre-wrap; border: 1px solid var(--danger); color: var(--danger); border-radius: 8px; }
+.error button { background: #ffd60a; font-weight: 700; }
