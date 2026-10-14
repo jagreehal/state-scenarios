@@ -93,39 +93,100 @@ async function setPanel(page: Page, show: boolean) {
 export const unhandledRequests = (page: Page): Promise<string[]> =>
   page.evaluate(() => globalThis.stateScenariosUnhandled ?? []);
 
+/** Options for {@link showCursor}. */
+export interface CursorOptions {
+  /** Colour of the arrow, its pulse and the click ripple. Default `#ff2d55`. */
+  color?: string;
+  /** Your own cursor as SVG markup, drawn with its top-left corner at the mouse. Replaces the arrow. */
+  svg?: string;
+}
+
 /**
  * Draw a mouse pointer that follows Playwright's mouse, since recorded videos don't show one.
- * It glides between points and pulses on click. Call before the page loads, e.g. before `openScenario`.
+ * It's a bright arrow with a pulsing halo that glides between points and sends out a ripple on
+ * each click. Call before the page loads, e.g. before `openScenario`.
  */
-export async function showCursor(page: Page) {
-  await page.addInitScript(() => {
+export async function showCursor(page: Page, options: CursorOptions = {}) {
+  await page.addInitScript(({ color = '#ff2d55', svg }) => {
+    type Pointer = { type: 'move' | 'down' | 'up'; x: number; y: number; };
+
+    // Only the top frame draws. Other frames pass their mouse events to their parent, which adds the
+    // iframe's place, so a page with iframes shows one cursor.
+    let show = (pointer: Pointer) => parent.postMessage({ stateScenariosCursor: pointer }, '*');
+
+    const local = (type: Pointer['type']) => (e: MouseEvent) => show({ type, x: e.clientX, y: e.clientY });
+    addEventListener('mousemove', local('move'), true);
+    addEventListener('mousedown', local('down'), true);
+    addEventListener('mouseup', local('up'), true);
+    addEventListener('message', (e) => {
+      const pointer: Pointer | undefined = e.data?.stateScenariosCursor;
+      const frame = [...document.querySelectorAll('iframe')].find((f) => f.contentWindow === e.source);
+
+      if (!pointer || !frame) return;
+
+      // Same mapping as the CLI's pagePoint: the measured box over the layout size gives the
+      // iframe's CSS scale, which applies to its border, padding and the point itself.
+      const box = frame.getBoundingClientRect();
+      const style = getComputedStyle(frame);
+      const scaleX = box.width / frame.offsetWidth || 1;
+      const scaleY = box.height / frame.offsetHeight || 1;
+
+      show({
+        ...pointer,
+        x: box.left + (frame.clientLeft + parseFloat(style.paddingLeft) + pointer.x) * scaleX,
+        y: box.top + (frame.clientTop + parseFloat(style.paddingTop) + pointer.y) * scaleY,
+      });
+    });
+
+    if (window !== window.top) return;
+
+    const style = document.createElement('style');
+    style.textContent = `
+      .ss-cursor, .ss-ripple {
+        position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2147483647;
+      }
+      .ss-cursor { transition: transform .35s ease-in-out; }
+      .ss-cursor > * { display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); transition: scale .1s; transform-origin: 0 0; }
+      .ss-cursor[data-down] > * { scale: .8; }
+      .ss-cursor::before, .ss-ripple { border-radius: 50%; box-sizing: border-box; border: 3px solid ${color}; }
+      .ss-cursor::before {
+        content: ''; position: absolute; width: 28px; height: 28px; left: -14px; top: -14px; animation: ss-pulse 1.2s ease-out infinite;
+      }
+      .ss-ripple { width: 64px; height: 64px; margin: -32px 0 0 -32px; animation: ss-ripple .6s ease-out forwards; }
+      @keyframes ss-pulse { from { scale: .4; opacity: .9; } to { scale: 1.3; opacity: 0; } }
+      @keyframes ss-ripple { from { scale: .3; opacity: 1; } to { scale: 1.6; opacity: 0; } }`;
+
     const cursor = document.createElement('div');
+    cursor.className = 'ss-cursor';
     cursor.setAttribute('aria-hidden', 'true');
-    cursor.style.cssText = [
-      'position:fixed',
-      'left:0',
-      'top:0',
-      'width:18px',
-      'height:18px',
-      'margin:-9px 0 0 -9px',
-      'border-radius:50%',
-      'background:rgba(20,20,20,.55)',
-      'border:2px solid #fff',
-      'box-shadow:0 1px 4px rgba(0,0,0,.4)',
-      'pointer-events:none',
-      'z-index:2147483647',
-      'transform:translate(-40px,-40px)',
-      'transition:transform .25s ease-out,scale .1s',
-    ].join(';');
+    cursor.innerHTML = svg
+      ?? `<svg width="32" height="37" viewBox="0 0 26 30"><path d="M2 2v23l6-6 4.5 9 4-2-4.5-9H21z" fill="${color}" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/></svg>`;
+    // Start mid-screen so the first glide to a target shows in the video.
+    cursor.style.transform = `translate(${innerWidth / 2}px,${innerHeight / 2}px)`;
 
-    const place = (e: MouseEvent) => (cursor.style.transform = `translate(${e.clientX}px,${e.clientY}px)`);
-    addEventListener('mousemove', place, true);
-    addEventListener('mousedown', () => (cursor.style.scale = '0.7'), true);
-    addEventListener('mouseup', () => (cursor.style.scale = '1'), true);
+    show = ({ type, x, y }) => {
+      if (type === 'up') {
+        delete cursor.dataset.down;
 
-    const attach = () => document.documentElement.append(cursor);
+        return;
+      }
+
+      cursor.style.transform = `translate(${x}px,${y}px)`;
+
+      if (type === 'move') return;
+
+      cursor.dataset.down = '';
+      const ripple = document.createElement('div');
+      ripple.className = 'ss-ripple';
+      ripple.style.left = `${x}px`;
+      ripple.style.top = `${y}px`;
+      ripple.addEventListener('animationend', () => ripple.remove());
+      document.documentElement.append(ripple);
+    };
+
+    const attach = () => document.documentElement.append(style, cursor);
 
     if (document.documentElement) attach();
     else addEventListener('DOMContentLoaded', attach);
-  });
+  }, options);
 }
