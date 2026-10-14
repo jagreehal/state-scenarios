@@ -54,7 +54,38 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
 - Video records at viewport size, so use a larger `--viewport` for sharper video; `--scale`
   affects screenshots only.
 - MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg on `PATH`, or `FFMPEG_PATH`. WebM without them doesn't.
+- Each video gets a `<name>.video.json` manifest: size, length, description and clicks. See
+  [Videos in Remotion](#videos-in-remotion).
 - In your own Playwright scripts, `showCursor(page)` from `state-scenarios/playwright` draws the
   cursor; call it before `openScenario(page, name, { panel: false })`.
+
+## Videos in Remotion
+
+`record` writes `<name>.video.json` next to each video, for editors such as
+[Remotion](https://www.remotion.dev):
+
+```json
+{
+  "name": "default",
+  "description": "All 248 countries from the API",
+  "video": "default.mp4",
+  "width": 1280,
+  "height": 720,
+  "durationMs": 4185,
+  "clicks": [{ "t": 731, "x": 93, "y": 56 }]
+}
+```
+
+`durationMs` and click times count from the first frame of the saved video. Click `x` and `y` are
+pixels in it, after `--element` and `--width`. Record into the Remotion project's `public/` folder,
+then:
+
+- Read the manifests in the composition's `calculateMetadata` to set `durationInFrames`.
+- Play each video with `<Video src={staticFile(...)} />` from `@remotion/media`.
+- Zoom to each click by scaling the video around its `x` and `y` shortly before `t`.
+- Use `description` as a caption, or replace it per scenario.
+
+Pace steps with a short `page.waitForTimeout` before each click, so the zoom has time to arrive.
+`examples/remotion-promo` in the state-scenarios repo does all of this.
 
 Use demo data in scenarios meant for public images: fictional names, no real customer records.
