@@ -1,0 +1,75 @@
+name: state-scenarios PR screenshots
+description: >
+  Shoot the UI states a pull request touches on its base and on the change, publish what changed,
+  and post one comment on the PR with before | after | changed images.
+branding:
+  icon: image
+  color: purple
+
+inputs:
+  scenarios:
+    description: Scenarios folder, e.g. src/scenarios.
+    required: true
+  dev-command:
+    description: Starts the dev server, e.g. "npm run dev". The action starts and stops it, once per side.
+    required: true
+  base-url:
+    description: Where the dev server answers, e.g. http://localhost:5173.
+    required: true
+  install-command:
+    description: Installs dependencies and Chromium; run on the base and on the change.
+    default: npm ci && npx playwright install --with-deps chromium
+  cli:
+    description: How to run the state-scenarios CLI from the installed dependencies.
+    default: npx state-scenarios
+  src:
+    description: The app's folders, comma-separated, so changes elsewhere in a monorepo are ignored.
+    default: ''
+  shoot-args:
+    description: Extra flags for shoot on both sides, e.g. "--no-panel --viewport 1280x800".
+    default: ''
+  all-when-unmatched:
+    description: Shoot every state when a changed file maps to none (a shared stylesheet, a layout).
+    default: 'true'
+  branch:
+    description: Branch the images are pushed to.
+    default: scenario-shots
+  comment:
+    description: Post or update the PR comment. The job summary gets it either way.
+    default: 'true'
+  fail-on-error:
+    description: Fail when a touched state fails on the change (didn't render, unmocked request, error).
+    default: 'true'
+
+outputs:
+  out:
+    description: Folder with the before and after screenshots, diffs and the comment.
+    value: ${{ steps.run.outputs.out }}
+
+runs:
+  using: composite
+  steps:
+    - id: run
+      shell: bash
+      env:
+        INPUT_SCENARIOS: ${{ inputs.scenarios }}
+        INPUT_DEV-COMMAND: ${{ inputs.dev-command }}
+        INPUT_BASE-URL: ${{ inputs.base-url }}
+        INPUT_INSTALL-COMMAND: ${{ inputs.install-command }}
+        INPUT_CLI: ${{ inputs.cli }}
+        INPUT_SRC: ${{ inputs.src }}
+        INPUT_SHOOT-ARGS: ${{ inputs.shoot-args }}
+        INPUT_ALL-WHEN-UNMATCHED: ${{ inputs.all-when-unmatched }}
+        INPUT_BRANCH: ${{ inputs.branch }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_FAIL-ON-ERROR: ${{ inputs.fail-on-error }}
+        INPUT_OUT: ${{ runner.temp }}/pr-screenshots
+        GH_TOKEN: ${{ github.token }}
+      run: node "$GITHUB_ACTION_PATH/run.mjs"
+
+    - if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pr-screenshots
+        path: ${{ runner.temp }}/pr-screenshots
+        if-no-files-found: ignore
