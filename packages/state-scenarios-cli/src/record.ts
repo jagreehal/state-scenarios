@@ -1,4 +1,4 @@
-import type { Frame, Locator, Page } from '@playwright/test';
+import type { Frame } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync } from 'node:fs';
 import { CliError } from './errors.js';
@@ -137,8 +137,8 @@ export function videoManifest(
     /** Epoch ms where the saved video begins and ends. */
     start: number;
     end: number;
-    /** Epoch ms and page coordinates of each pointerdown. */
-    clicks: { at: number; x: number; y: number; }[];
+    /** Epoch ms and page coordinates of each pointerdown, and of each field taking focus. */
+    clicks: { at: number; x: number; y: number; kind?: 'focus'; }[];
   },
 ) {
   const source = crop
@@ -160,6 +160,7 @@ export function videoManifest(
         t: Math.round(c.at - start),
         x: Math.round((c.x - Math.round(source.x)) * ratio),
         y: Math.round((c.y - Math.round(source.y)) * ratio),
+        ...(c.kind && { kind: c.kind }),
       }))
       .filter((c) => c.t >= 0 && c.x >= 0 && c.y >= 0 && c.x < size.width && c.y < size.height),
   };
@@ -199,44 +200,4 @@ export async function pagePoint(frame: Frame, x: number, y: number) {
   const scaleY = box.height / layout.height;
 
   return { x: box.x + (layout.left + x) * scaleX, y: box.y + (layout.top + y) * scaleY };
-}
-
-const gliding = new WeakMap<Page, number>();
-
-/**
- * Make `locator.click()` on this page hover first and wait for the drawn cursor's glide, so videos
- * show the pointer reaching its target before the click. Playwright's click moves and presses in
- * one go, so the page would react before the cursor arrives. The Locator prototype is shared, so
- * it's patched once and other pages click as usual.
- */
-export function glideBeforeClick(page: Page, ms = 400) {
-  gliding.set(page, ms);
-
-  const proto: Locator & { glides?: true; } = Object.getPrototypeOf(page.locator('html'));
-
-  if (proto.glides) return;
-  proto.glides = true;
-
-  const click: (this: Locator, options?: Parameters<Locator['click']>[0]) => Promise<void> = Object
-    .getOwnPropertyDescriptor(proto, 'click')?.value;
-
-  proto.click = async function(this: Locator, options) {
-    const wait = gliding.get(this.page());
-    const hover = { position: options?.position, force: options?.force, timeout: options?.timeout };
-
-    // A target that moves or resizes during the glide (its click point moves either way) gets
-    // another one, up to three, so the cursor is there when the click lands.
-    if (wait !== undefined) {
-      for (let tries = 0; tries < 3; tries++) {
-        await this.hover(hover);
-        const before = await this.boundingBox();
-        await this.page().waitForTimeout(wait);
-        const after = await this.boundingBox();
-
-        if (JSON.stringify(before) === JSON.stringify(after)) break;
-      }
-    }
-
-    return click.call(this, options);
-  };
 }

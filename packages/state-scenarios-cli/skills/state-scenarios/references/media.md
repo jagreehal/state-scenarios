@@ -41,7 +41,7 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
 ```
 
 - The panel is hidden and a bright arrow cursor is drawn (Playwright videos don't show the mouse).
-  It pulses, glides to each target before `locator.click()` lands, and sends out a ripple on the
+  It pulses, glides to each target before a click, check or `fill` lands, and sends out a ripple on the
   click. `--cursor-color <css>` (default `#ff2d55`) recolours it; `--cursor <file.svg>` draws your
   own, with its top-left corner at the mouse.
 - The video starts once the scenario is ready and holds the last frame for `--hold` ms (default
@@ -56,11 +56,12 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
 - Video records at viewport size, so use a larger `--viewport` for sharper video; `--scale`
   affects screenshots only.
 - MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg on `PATH`, or `FFMPEG_PATH`. WebM without them doesn't.
-- Each video gets a `<name>.video.json` manifest: size, length, description and clicks. See
+- Each video gets a `<name>.video.json` manifest: size, length, description and clicks; a field
+  taking focus is a point with `kind: 'focus'`, so editors can hold on it while it's typed into. See
   [Videos in Remotion](#videos-in-remotion).
-- In your own Playwright scripts, `showCursor(page, { color, svg })` from `state-scenarios/playwright`
-  draws the cursor; call it before `openScenario(page, name, { panel: false })`. Hover before a
-  click there, so the cursor arrives first.
+- In your own Playwright scripts, `showCursor(page, { color, svg, size, halo })` from `state-scenarios/playwright`
+  draws the cursor; call it before `openScenario(page, name, { panel: false })`. `{ glide: true }`
+  makes actions wait for the cursor to arrive, as `record` does.
 
 ## Videos in Remotion
 

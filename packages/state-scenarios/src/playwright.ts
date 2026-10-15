@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { DATA_KEY, PARAM, STRICT_PARAM } from './link.js';
 import type { ScenarioInput } from './schema.js';
 
@@ -99,6 +99,16 @@ export interface CursorOptions {
   color?: string;
   /** Your own cursor as SVG markup, drawn with its top-left corner at the mouse. Replaces the arrow. */
   svg?: string;
+  /** Scale for the pointer, `svg` included: 1 is the default 32px arrow, 1.5 half again. Default 1. */
+  size?: number;
+  /** Diameter of the pulsing halo in pixels, or `false` for none. Default 28. */
+  halo?: false | number;
+  /**
+   * Let the cursor arrive before each action lands, for videos: clicks, checks and typing
+   * (`fill`, `pressSequentially`, `selectOption`) wait for the glide first. `true` waits 400ms,
+   * a number that many ms. See {@link glideBeforeActions}.
+   */
+  glide?: boolean | number;
 }
 
 /**
@@ -106,8 +116,9 @@ export interface CursorOptions {
  * It's a bright arrow with a pulsing halo that glides between points and sends out a ripple on
  * each click. Call before the page loads, e.g. before `openScenario`.
  */
-export async function showCursor(page: Page, options: CursorOptions = {}) {
-  await page.addInitScript(({ color = '#ff2d55', svg }) => {
+export async function showCursor(page: Page, { glide = false, halo = 28, ...options }: CursorOptions = {}) {
+  if (glide !== false) glideBeforeActions(page, glide === true ? undefined : glide);
+  await page.addInitScript(({ color = '#ff2d55', svg, size = 1, halo }) => {
     type Pointer = { type: 'move' | 'down' | 'up'; x: number; y: number; };
 
     // Only the top frame draws. Other frames pass their mouse events to their parent, which adds the
@@ -146,11 +157,13 @@ export async function showCursor(page: Page, options: CursorOptions = {}) {
         position: fixed; left: 0; top: 0; pointer-events: none; z-index: 2147483647;
       }
       .ss-cursor { transition: transform .35s ease-in-out; }
-      .ss-cursor > * { display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); transition: scale .1s; transform-origin: 0 0; }
+      .ss-cursor > * { display: block; filter: drop-shadow(0 2px 3px rgba(0,0,0,.45)); transition: scale .1s; transform-origin: 0 0; transform: scale(${size}); }
       .ss-cursor[data-down] > * { scale: .8; }
       .ss-cursor::before, .ss-ripple { border-radius: 50%; box-sizing: border-box; border: 3px solid ${color}; }
       .ss-cursor::before {
-        content: ''; position: absolute; width: 28px; height: 28px; left: -14px; top: -14px; animation: ss-pulse 1.2s ease-out infinite;
+        content: ''; position: absolute; left: 0; top: 0;
+        width: ${halo}px; height: ${halo}px; margin: ${-halo / 2}px;
+        animation: ss-pulse 1.2s ease-out infinite;${halo ? '' : ' display: none;'}
       }
       .ss-ripple { width: 64px; height: 64px; margin: -32px 0 0 -32px; animation: ss-ripple .6s ease-out forwards; }
       @keyframes ss-pulse { from { scale: .4; opacity: .9; } to { scale: 1.3; opacity: 0; } }
@@ -188,5 +201,73 @@ export async function showCursor(page: Page, options: CursorOptions = {}) {
 
     if (document.documentElement) attach();
     else addEventListener('DOMContentLoaded', attach);
-  }, options);
+  }, { ...options, halo: halo || 0 });
+}
+
+const gliding = new WeakMap<Page, number>();
+
+// Actions that press at a point take its `position`; the typing ones only need the field.
+const POINTED = ['click', 'dblclick', 'check', 'uncheck'] as const;
+
+const TYPED = ['fill', 'pressSequentially', 'selectOption'] as const;
+
+type ActionOptions = { position?: { x: number; y: number; }; force?: boolean; timeout?: number; };
+
+/**
+ * Make locator actions on this page move the mouse to their target and wait for the drawn
+ * cursor's glide before they land, so videos show the pointer arriving first. Playwright's
+ * click moves and presses in one go, and `fill` types without moving the mouse at all.
+ * Covers click, dblclick, check, uncheck, fill, pressSequentially and selectOption. The Locator
+ * prototype is shared, so it's patched once and other pages act as usual.
+ * `showCursor(page, { glide: true })` calls this for you.
+ */
+export function glideBeforeActions(page: Page, ms = 400) {
+  gliding.set(page, ms);
+
+  // Typed by the options alone; fill's value slot is passed through untouched.
+  type Action = (this: Locator, ...args: (ActionOptions | undefined)[]) => Promise<void>;
+
+  const proto: Record<string, Action> & { glides?: true; } = Object.getPrototypeOf(page.locator('html'));
+
+  if (proto.glides) return;
+  proto.glides = true;
+
+  for (const name of [...POINTED, ...TYPED]) {
+    const action = proto[name];
+    const pointed = POINTED.some((p) => p === name);
+
+    // click(options), fill(value, options): the options come after the value when there is one.
+    proto[name] = async function(this: Locator, ...args: (ActionOptions | undefined)[]) {
+      const wait = gliding.get(this.page());
+      const options = pointed ? args[0] : args[1];
+
+      if (wait !== undefined) await glideTo(this, wait, pointed, options);
+
+      return action.apply(this, args);
+    };
+  }
+}
+
+async function glideTo(locator: Locator, wait: number, pointed: boolean, options: ActionOptions = {}) {
+  // A target that moves or resizes during the glide (its point moves either way) gets another
+  // one, up to three, so the cursor is there when the action lands.
+  for (let tries = 0; tries < 3; tries++) {
+    if (pointed) {
+      await locator.hover({ position: options.position, force: options.force, timeout: options.timeout });
+    } else {
+      // No hover: a field can be typed into while something covers it, which hover would wait out.
+      // Scrolled first, as typing would, so the cursor goes where the field will be.
+      await locator.scrollIntoViewIfNeeded({ timeout: options.timeout });
+      const box = await locator.boundingBox({ timeout: options.timeout });
+
+      if (!box) return;
+      await locator.page().mouse.move(box.x + Math.min(24, box.width / 2), box.y + box.height / 2);
+    }
+
+    const before = await locator.boundingBox();
+    await locator.page().waitForTimeout(wait);
+    const after = await locator.boundingBox();
+
+    if (JSON.stringify(before) === JSON.stringify(after)) break;
+  }
 }

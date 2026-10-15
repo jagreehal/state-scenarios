@@ -30,3 +30,15 @@ it('moves the point continuously between clicks closer together than the glide',
   expect(zoomAt(rapid, 1000).x).toBe(100);
   expect(zoomAt(rapid, 1100).x).toBe(300);
 });
+
+it('holds on a focused field until the next point, while it is typed into', () => {
+  const typing = [{ t: 1000, x: 100, y: 50, kind: 'focus' as const }, { t: 4000, x: 300, y: 250 }];
+
+  expect(zoomAt(typing, 3000)).toEqual({ scale: 1.6, x: 100, y: 50 });
+  // A click holds for less than that.
+  expect(zoomAt([{ t: 1000, x: 100, y: 50 }, { t: 4000, x: 300, y: 250 }], 3000).scale).toBe(1);
+});
+
+it('holds on the last focused field through the end of the clip', () => {
+  expect(zoomAt([{ t: 1000, x: 100, y: 50, kind: 'focus' }], 60_000)).toEqual({ scale: 1.6, x: 100, y: 50 });
+});
