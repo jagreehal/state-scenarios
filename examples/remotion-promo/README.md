@@ -16,8 +16,8 @@ pnpm render                    # out/promo.mp4
 - [`src/Root.tsx`](src/Root.tsx) lists the scenarios and their captions. Its `calculateMetadata`
   reads each `<name>.video.json` and sets the video's length from them.
 - [`src/ScenarioClip.tsx`](src/ScenarioClip.tsx) plays one recording, and
-  [`src/zoom.ts`](src/zoom.ts) turns its clicks into a camera that zooms in before each click and
-  glides between nearby ones.
+  [`src/zoom.ts`](src/zoom.ts) turns its clicks into a camera that zooms in before each click,
+  glides between nearby ones and holds on a field while it's typed into.
 
 To use your own app, point `pnpm clips` at your scenarios folder, base URL and steps, then change
 the scenario list in `src/Root.tsx`.

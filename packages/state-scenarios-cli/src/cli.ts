@@ -68,8 +68,8 @@ Common: --rules file   module exporting \`rules\` (ScenarioRule[])
 
 declare global {
   interface Window {
-    /** Set by record: reports each pointerdown for the video's manifest. */
-    stateScenariosClick(x: number, y: number): void;
+    /** Set by record: reports each pointerdown, and each field taking focus, for the video's manifest. */
+    stateScenariosClick(x: number, y: number, kind?: 'focus'): void;
   }
 }
 
@@ -628,8 +628,8 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
       await checkServer(baseURL);
       const { openScenario, showCursor } = await import('state-scenarios/playwright');
       const record = await import('./record.js');
-      const { encodeVideo, glideBeforeClick, pagePoint, videoManifest, visibleCrop } = record;
-      // slowMo spaces out steps so viewers can follow them; glideBeforeClick lets the cursor arrive first.
+      const { encodeVideo, pagePoint, videoManifest, visibleCrop } = record;
+      // slowMo spaces out steps so viewers can follow them; glide lets the cursor arrive first.
       const browser = await launchChromium({ slowMo: 150 });
       let exitCode = 0;
 
@@ -677,22 +677,57 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         const page = await context.newPage();
         const began = Date.now();
         const file = join(out, `${name}.${format}`);
-        const clicks: Promise<{ at: number; x: number; y: number; } | undefined>[] = [];
+        const clicks: Promise<{ at: number; x: number; y: number; kind?: 'focus'; } | undefined>[] = [];
 
         try {
-          await showCursor(page, cursor);
-          glideBeforeClick(page);
-          // Clicks go in the video's manifest, for editors that zoom to them. The listener runs in
-          // every frame, so iframe clicks map through the iframe's place and scale; a detached one drops.
-          await page.exposeBinding('stateScenariosClick', ({ frame }, x: number, y: number) => {
-            const at = Date.now();
+          await showCursor(page, { ...cursor, glide: true });
+          // Clicks and focused fields go in the video's manifest, for editors that zoom to them. The
+          // listener runs in every frame, so iframe points map through the iframe's place and scale;
+          // a detached one drops.
+          await page.exposeBinding(
+            'stateScenariosClick',
+            ({ frame }, x: number, y: number, kind?: 'focus') => {
+              const at = Date.now();
 
-            clicks.push(
-              pagePoint(frame, x, y).then((point) => ({ at, ...point }), () => undefined),
-            );
-          });
+              clicks.push(
+                pagePoint(frame, x, y).then((point) => ({ at, ...point, kind }), () => undefined),
+              );
+            },
+          );
           await page.addInitScript(() => {
-            addEventListener('pointerdown', (e) => window.stateScenariosClick(e.clientX, e.clientY), true);
+            let pressed: { x: number; y: number; t: number; } | undefined;
+
+            addEventListener('pointerdown', (e) => {
+              pressed = { x: e.clientX, y: e.clientY, t: performance.now() };
+              window.stateScenariosClick(e.clientX, e.clientY);
+            }, true);
+            // The glide before fill() moves the mouse, so the field's own point applies.
+            addEventListener('pointermove', () => pressed = undefined, true);
+            // A field taking focus is about to be typed into, so editors hold the camera on it.
+            // Focus from a click keeps the click's point; fill() focuses where the glide put the mouse.
+            addEventListener('focusin', (e) => {
+              const field = e.target;
+
+              if (
+                !(field instanceof Element)
+                || !field.matches(
+                  'textarea, select, [contenteditable]:not([contenteditable=false]), input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=file], [type=image], [type=range], [type=color])',
+                )
+              ) return;
+
+              if (pressed && performance.now() - pressed.t < 500) {
+                window.stateScenariosClick(pressed.x, pressed.y, 'focus');
+
+                return;
+              }
+
+              const box = field.getBoundingClientRect();
+              window.stateScenariosClick(
+                box.left + Math.min(24, box.width / 2),
+                box.top + box.height / 2,
+                'focus',
+              );
+            }, true);
           });
           await openScenario(page, name, { path: resolved.path, strict: !values['no-strict'], panel: false });
           const crop = element ? await cropTo(page, element, options.viewport) : undefined;

@@ -125,6 +125,7 @@ describe('videoManifest', () => {
         // Before the video starts, and outside the crop: not in the video.
         { at: 9_000, x: 500, y: 250 },
         { at: 12_000, x: 50, y: 250 },
+        { at: 12_500, x: 300, y: 150, kind: 'focus' },
       ],
     });
 
@@ -135,7 +136,7 @@ describe('videoManifest', () => {
       width: 400,
       height: 200,
       durationMs: 4250,
-      clicks: [{ t: 1000, x: 200, y: 100 }],
+      clicks: [{ t: 1000, x: 200, y: 100 }, { t: 2500, x: 100, y: 50, kind: 'focus' }],
     });
   });
 });
