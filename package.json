@@ -34,7 +34,7 @@
     "redux": "5.0.1",
     "state-scenarios": "workspace:*",
     "state-scenarios-cli": "workspace:*",
-    "turbo": "^2.5.0",
+    "turbo": "^2.11.9",
     "typescript": "7.0.2",
     "vite": "8.3.2",
     "vitest": "5.0.3",
