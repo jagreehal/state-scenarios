@@ -224,8 +224,8 @@ importers:
         specifier: 5.0.3
         version: 5.0.3(@types/node@24.19.1)(happy-dom@20.14.6)(msw@3.0.2(@types/node@24.19.1)(supports-color@8.1.1)(typescript@7.0.2)(vite@8.3.2(@types/node@24.19.1)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1)))(vite@8.3.2(@types/node@24.19.1)(esbuild@0.27.7)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))
       xstate:
-        specifier: 5.33.2
-        version: 5.33.2
+        specifier: 5.33.3
+        version: 5.33.3
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -364,7 +364,7 @@ importers:
     dependencies:
       '@xstate/react':
         specifier: ^6.1.0
-        version: 6.1.0(@types/react@19.3.0)(react@19.3.0)(xstate@5.33.2)
+        version: 6.1.0(@types/react@19.3.0)(react@19.3.0)(xstate@5.33.3)
       preact:
         specifier: ^11.0.0
         version: 11.0.0(preact-render-to-string@6.8.0)
@@ -378,8 +378,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/state-scenarios-react
       xstate:
-        specifier: ^5.33.2
-        version: 5.33.2
+        specifier: ^5.33.3
+        version: 5.33.3
       zod:
         specifier: 4.6.5
         version: 4.6.5
@@ -4004,8 +4004,8 @@ packages:
       utf-8-validate:
         optional: true
 
-  xstate@5.33.2:
-    resolution: {integrity: sha512-8tC7yXgeCvpT8gKEeEje6ikJJG1wpnoLiXe+HfECW8m10ubMd3QxKOwWA8KxPJVBcLwfdRoMKYxIBGYKmo37/A==}
+  xstate@5.33.3:
+    resolution: {integrity: sha512-AnDRjS/GyKHmbA1PyhVCYBqYsA7EGe3KGgeD0ht3NFsXzoz7leX/HQDFX9QlHFJ/ltLHPsgChJYwPzRvB/0b4g==}
 
   y18n@5.0.8:
     resolution: {integrity: sha512-0pfFzegeDWJHJIAmTLRP2DwHjdF5s7jo9tuztdQxAhINCdvS+3nGINqPd00AphqJR/0LhANUS6/+7SCb98YOfA==}
@@ -5813,13 +5813,13 @@ snapshots:
       '@webassemblyjs/ast': 1.14.1
       '@xtuc/long': 4.2.2
 
-  '@xstate/react@6.1.0(@types/react@19.3.0)(react@19.3.0)(xstate@5.33.2)':
+  '@xstate/react@6.1.0(@types/react@19.3.0)(react@19.3.0)(xstate@5.33.3)':
     dependencies:
       react: 19.3.0
       use-isomorphic-layout-effect: 1.2.1(@types/react@19.3.0)(react@19.3.0)
       use-sync-external-store: 1.7.0(react@19.3.0)
     optionalDependencies:
-      xstate: 5.33.2
+      xstate: 5.33.3
     transitivePeerDependencies:
       - '@types/react'
 
@@ -7183,7 +7183,7 @@ snapshots:
 
   ws@8.22.0: {}
 
-  xstate@5.33.2: {}
+  xstate@5.33.3: {}
 
   y18n@5.0.8: {}
 
