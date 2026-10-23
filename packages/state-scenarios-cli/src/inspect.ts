@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import type { ReadyReport, Scenario } from 'state-scenarios';
 import { openScenario, unhandledRequests } from 'state-scenarios/playwright';
+import { z } from 'zod';
 import type { ErrorCode } from './errors.js';
 
 export interface Inspection {
@@ -20,41 +21,66 @@ export interface Inspection {
 
 const firstLine = (err: Error | string) => (err instanceof Error ? err.message : err).split('\n')[0] ?? '';
 
-/**
- * Logged inside another site's iframe, such as a payment or captcha widget, which the app
- * doesn't control. A script from a CDN running in the app's own page still counts.
- */
-function inOtherSitesFrame(page: Page, source: string) {
-  const origin = (url: string) => URL.parse(url)?.origin;
-  const from = origin(source);
-
-  return from !== undefined && from !== origin(page.url())
-    && page.frames().some((f) => f !== page.mainFrame() && origin(f.url()) === from);
-}
+const FrameAux = z.object({ frameId: z.string() });
 
 /**
- * Collect uncaught exceptions and console errors from now on. Browser network logs
- * ("Failed to load resource") are left out: error scenarios cause them on purpose, and
- * requests the scenario didn't mock are reported as unhandled instead.
+ * Collect uncaught exceptions and console errors from now on. Only the app's frames count: the
+ * page and same-origin iframes. Another site's iframe, such as a payment or captcha widget, logs
+ * errors the app can't fix. Browser network logs ("Failed to load resource") are left out: error
+ * scenarios cause them on purpose, and requests the scenario didn't mock are reported as
+ * unhandled instead.
  */
-export function watchErrors(page: Page, ignore?: RegExp) {
+export async function watchErrors(page: Page, ignore?: RegExp) {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
-  page.on('pageerror', (err) => pageErrors.push(err.message));
-  page.on('console', (m) => {
-    const text = m.text();
-    // Strict mode logs each unmocked request; those are reported as unhandled already.
 
+  const record = (text: string) => {
+    // Strict mode logs each unmocked request; those are reported as unhandled already.
     const known = text.startsWith('Failed to load resource')
       || /^\[state-scenarios\] ".*" has no handler for /.test(text);
 
-    if (
-      m.type() === 'error' && !known && !inOtherSitesFrame(page, m.location().url)
-      && !ignore?.test(text)
-    ) {
-      consoleErrors.push(text);
-    }
+    if (!known && !ignore?.test(text)) consoleErrors.push(text);
+  };
+
+  page.on('pageerror', (err) => pageErrors.push(err.message));
+
+  // Playwright doesn't say which frame logged a message; Chromium's protocol does. This session
+  // sees the page's own process: other sites' iframes run in processes of their own.
+  const cdp = await page.context().newCDPSession(page);
+  const frameOf = new Map<number, string>();
+  const urlOf = new Map<string, string>();
+  const origin = (frame = '') => URL.parse(urlOf.get(frame) ?? '')?.origin;
+  let main = '';
+
+  cdp.on('Page.frameNavigated', ({ frame }) => {
+    urlOf.set(frame.id, frame.url);
+
+    if (!frame.parentId) main = frame.id;
   });
+  cdp.on('Runtime.executionContextCreated', ({ context }) => {
+    const aux = FrameAux.safeParse(context.auxData);
+
+    if (aux.success) frameOf.set(context.id, aux.data.frameId);
+  });
+  cdp.on('Runtime.consoleAPICalled', ({ type, args, executionContextId }) => {
+    const frame = frameOf.get(executionContextId);
+
+    if (type !== 'error' || (frame !== main && origin(frame) !== origin(main))) return;
+    record(args.map((a) => String(a.value ?? a.description ?? '')).join(' '));
+  });
+  // The browser's own messages. A content security policy's refusal names the document whose
+  // policy it is, so a widget's own policy doesn't count.
+  cdp.on('Log.entryAdded', ({ entry }) => {
+    const elsewhere = entry.source === 'security' && entry.url !== undefined
+      && URL.parse(entry.url)?.origin !== origin(main);
+
+    if (entry.level === 'error' && entry.source !== 'network' && !elsewhere) record(entry.text);
+  });
+
+  const { frameTree } = await cdp.send('Page.getFrameTree');
+  main = frameTree.frame.id;
+  urlOf.set(main, frameTree.frame.url);
+  await Promise.all([cdp.send('Page.enable'), cdp.send('Runtime.enable'), cdp.send('Log.enable')]);
 
   return { pageErrors, consoleErrors };
 }
@@ -71,7 +97,7 @@ export async function inspectScenario(
     ignoreConsole?: RegExp;
   },
 ): Promise<Inspection> {
-  const errors = watchErrors(page, ignoreConsole);
+  const errors = await watchErrors(page, ignoreConsole);
   const codes: ErrorCode[] = [];
   let error: string | null = null;
   let ready: Inspection['ready'] = null;

@@ -29,5 +29,5 @@ Open any state of an app you can't change, and reach states that need clicks or 
 
 - `record` notes `cover`, the share of the video an element covers, on each point in `<name>.video.json`, and reads a popup's field after it settles on screen. The Remotion example zooms once per gesture and skips large elements.
 - `map` marks a row stale when any scenario it names is gone, and follows `extends` from every match.
-- `shoot` leaves out console errors from other sites' iframes, and `--ignore-console <regex>` drops others, such as a payment widget's CSP warnings.
+- `shoot` counts console errors from the app's own frames, leaving out a payment or captcha iframe's errors and CSP warnings. `--ignore-console <regex>` drops others.
 - `publish` checks file names, `mcp` answers every call before exiting, and `doctor` checks the save route returns JSON.

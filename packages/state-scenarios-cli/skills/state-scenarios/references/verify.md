@@ -62,9 +62,9 @@ The terminal names a page for it: `❯ details .scenario-shots/<name>.md`. Read 
 - for unmocked requests, `network` entries ready to paste (fill in real bodies, or record them);
 - uncaught exceptions and console errors.
 
-A third-party widget (payments, captcha, chat) can log errors the app can't fix, such as its own
-CSP warnings. Errors from inside its iframe already don't count; for ones with no source, pass
-`shoot --ignore-console 'Content Security Policy'`.
+A third-party widget (payments, captcha, chat) logs errors the app can't fix. Errors and content
+security policy warnings from inside its iframe don't count. For anything else you can't fix, pass
+`shoot --ignore-console <regex>`.
 
 Look at the screenshot before changing the scenario: a ready timeout can mean the selector is
 wrong, or that the UI change broke the state. Fix the app when the screenshot shows a bug.
