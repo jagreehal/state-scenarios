@@ -714,11 +714,15 @@ const STYLES = `
   li[hidden] { display: none; }
   .list li { display: flex; align-items: stretch; gap: 4px; }
   .list a {
-    flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
-    text-decoration: none; border-left: 3px solid transparent;
+    flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px;
+    position: relative; padding: 8px 10px 8px 32px; border-radius: 8px; text-decoration: none;
   }
-  .list a:hover { background: var(--hover); }
-  .list a[aria-current] { border-left-color: var(--accent); background: var(--hover); }
+  .list a:hover, .list a[aria-current] { background: var(--hover); }
+  /* A check beside each active scenario; combined scenarios each get one. */
+  .list a[aria-current]::before {
+    content: ""; position: absolute; left: 11px; top: 12px; width: 12px; height: 7px;
+    border: solid var(--accent); border-width: 0 0 2px 2px; transform: rotate(-45deg);
+  }
   .list span { color: var(--muted); }
   .list small { color: var(--muted); font-size: 12px; }
   .add { width: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 18px; }
