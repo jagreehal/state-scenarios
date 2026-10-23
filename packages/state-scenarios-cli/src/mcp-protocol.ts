@@ -108,6 +108,7 @@ export function createMcpHandler(tools: McpTool[], info: { name: string; version
 /** Serve newline-delimited JSON-RPC on stdin/stdout. Logs must go to stderr. */
 export function serveStdio(handle: ReturnType<typeof createMcpHandler>) {
   const lines = createInterface({ input: process.stdin });
+  const pending = new Set<Promise<void>>();
 
   lines.on('line', (line) => {
     if (!line.trim()) return;
@@ -123,10 +124,16 @@ export function serveStdio(handle: ReturnType<typeof createMcpHandler>) {
       return;
     }
 
-    void handle(message).then((response) => {
+    const reply = handle(message).then((response) => {
       if (response) process.stdout.write(`${JSON.stringify(response)}\n`);
     });
+
+    pending.add(reply);
+    void reply.finally(() => pending.delete(reply));
   });
 
-  return new Promise<void>((resolve) => lines.on('close', resolve));
+  // Finish calls still running when stdin closes, so piped requests get their answers.
+  return new Promise<void>((resolve) => lines.on('close', resolve)).then(() => Promise.all(pending)).then(
+    () => {},
+  );
 }

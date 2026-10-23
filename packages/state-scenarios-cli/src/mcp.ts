@@ -31,7 +31,7 @@ const json = (value: Parameters<typeof JSON.stringify>[0]): Content => text(JSON
 export function mcpTools({ dir, baseURL, loadCatalog, flags }: McpOptions) {
   let browser: Browser | undefined;
   let page: Page | undefined;
-  let errors: ReturnType<typeof watchErrors> = { pageErrors: [], consoleErrors: [] };
+  let errors: Awaited<ReturnType<typeof watchErrors>> = { pageErrors: [], consoleErrors: [] };
 
   const getPage = async () => {
     if (page && !page.isClosed()) return page;
@@ -48,7 +48,7 @@ export function mcpTools({ dir, baseURL, loadCatalog, flags }: McpOptions) {
         document.head.append(style);
       });
     });
-    errors = watchErrors(page);
+    errors = await watchErrors(page);
 
     return page;
   };

@@ -56,11 +56,15 @@ images still loading show as changes.
 The terminal names a page for it: `❯ details .scenario-shots/<name>.md`. Read that page. It has:
 
 - the codes (`READY_TIMEOUT`, `UNMOCKED_REQUEST`, `SESSION_NOT_STARTED`, `SCENARIO_NOT_IN_APP`, `PAGE_ERROR`,
-  `CONSOLE_ERROR`, `ELEMENT_NOT_FOUND`) and the link that reopens the state;
+  `CONSOLE_ERROR`, `ELEMENT_NOT_FOUND`, `STEPS_FAILED`) and the link that reopens the state;
 - for a ready timeout, whether the selector matched anything, plus distinctive selectors on the
   page now;
 - for unmocked requests, `network` entries ready to paste (fill in real bodies, or record them);
 - uncaught exceptions and console errors.
+
+A third-party widget (payments, captcha, chat) logs errors the app can't fix. Errors and content
+security policy warnings from inside its iframe don't count. For anything else you can't fix, pass
+`shoot --ignore-console <regex>`.
 
 Look at the screenshot before changing the scenario: a ready timeout can mean the selector is
 wrong, or that the UI change broke the state. Fix the app when the screenshot shows a bug.

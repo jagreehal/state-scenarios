@@ -82,11 +82,25 @@ or cached data during a refetch.
 | Redux          | `withScenarioState(rootReducer, StateSchema)`, then `reduxAdapter(store)`                                    |
 | XState         | `xstateAdapter(machine, { context: ContextSchema })`, then `createActor(machine, { snapshot: xs.snapshot })` |
 | Cookies        | `cookiesAdapter()` from `state-scenarios/cookies`                                                            |
+| Web storage    | `storageAdapter()`, or `storageAdapter({ area: 'session' })`, from `state-scenarios/storage`                 |
 | A component    | `useScenarioState('page', state, (s) => dispatch({ type: 'set', state: s }), Schema)`                        |
 
 Pass a Zod schema wherever an adapter accepts one: invalid scenario state is then rejected before
 anything changes. `scenarioJsonSchema({ state: { key: Schema } })` regenerates the editor schema
 with typed `state`.
+
+## An app you can't change
+
+Leave the app's code alone and pick one:
+
+- `stateScenarios({ dir, inject: { handlers: ['@/mocks/*.handlers.ts'] } })` from
+  `state-scenarios/vite`, in a Vite config of your own that extends the app's. The page starts
+  scenarios, MSW and the panel before the app's entry runs, so links, the panel and the CLI work.
+- `routeScenario(page, { url, scenario, scenarios, handlers })` from `state-scenarios/playwright`
+  answers the API from the test. Use it when you only need Playwright.
+
+Both set `now`, `state.cookies`, `state.localStorage` and `state.sessionStorage` before the app
+starts. The README's "An app you can't change" section has full examples.
 
 ## Check
 

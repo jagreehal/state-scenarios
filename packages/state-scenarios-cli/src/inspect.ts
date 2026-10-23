@@ -21,23 +21,57 @@ export interface Inspection {
 const firstLine = (err: Error | string) => (err instanceof Error ? err.message : err).split('\n')[0] ?? '';
 
 /**
- * Collect uncaught exceptions and console errors from now on. Browser network logs
- * ("Failed to load resource") are left out: error scenarios cause them on purpose, and
- * requests the scenario didn't mock are reported as unhandled instead.
+ * Collect uncaught exceptions and console errors from now on. Only the app's frames count: the
+ * page and same-origin iframes. Another site's iframe, such as a payment or captcha widget, logs
+ * errors the app can't fix. Browser network logs ("Failed to load resource") are left out: error
+ * scenarios cause them on purpose, and requests the scenario didn't mock are reported as
+ * unhandled instead.
  */
-export function watchErrors(page: Page) {
+export async function watchErrors(page: Page, ignore?: RegExp) {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
-  page.on('pageerror', (err) => pageErrors.push(err.message));
-  page.on('console', (m) => {
-    const text = m.text();
-    // Strict mode logs each unmocked request; those are reported as unhandled already.
 
+  const record = (text: string) => {
+    // Strict mode logs each unmocked request; those are reported as unhandled already.
     const known = text.startsWith('Failed to load resource')
       || /^\[state-scenarios\] ".*" has no handler for /.test(text);
 
-    if (m.type() === 'error' && !known) consoleErrors.push(text);
+    if (!known && !ignore?.test(text)) consoleErrors.push(text);
+  };
+
+  page.on('pageerror', (err) => pageErrors.push(err.message));
+
+  // Playwright doesn't say which frame logged a message; Chromium's protocol does. This session
+  // sees the page's own process: other sites' iframes run in processes of their own.
+  const cdp = await page.context().newCDPSession(page);
+  // The origin each script context runs with: a srcdoc or about:blank iframe has its parent's.
+  const originOf = new Map<number, string>();
+  let app = '';
+  // Enabling Runtime and Log replays messages logged before now, such as a previous scenario's.
+  const since = Date.now();
+
+  cdp.on('Page.frameNavigated', ({ frame }) => {
+    if (!frame.parentId) app = frame.securityOrigin;
   });
+  cdp.on('Runtime.executionContextCreated', ({ context }) => originOf.set(context.id, context.origin));
+  cdp.on('Runtime.consoleAPICalled', ({ type, args, executionContextId, timestamp }) => {
+    if (type !== 'error' || timestamp < since || originOf.get(executionContextId) !== app) return;
+    record(args.map((a) => String(a.value ?? a.description ?? '')).join(' '));
+  });
+  // The browser's own messages. A content security policy's refusal names the document whose
+  // policy it is, so a widget's own policy doesn't count.
+  cdp.on('Log.entryAdded', ({ entry }) => {
+    const elsewhere = entry.source === 'security' && entry.url !== undefined
+      && URL.parse(entry.url)?.origin !== app;
+
+    if (entry.level === 'error' && entry.timestamp >= since && entry.source !== 'network' && !elsewhere) {
+      record(entry.text);
+    }
+  });
+
+  const { frameTree } = await cdp.send('Page.getFrameTree');
+  app = frameTree.frame.securityOrigin;
+  await Promise.all([cdp.send('Page.enable'), cdp.send('Runtime.enable'), cdp.send('Log.enable')]);
 
   return { pageErrors, consoleErrors };
 }
@@ -46,9 +80,15 @@ export function watchErrors(page: Page) {
 export async function inspectScenario(
   page: Page,
   scenario: Scenario,
-  { link, strict = true, panel = true }: { link: string; strict?: boolean; panel?: boolean; },
+  { link, strict = true, panel = true, ignoreConsole }: {
+    link: string;
+    strict?: boolean;
+    panel?: boolean;
+    /** Console errors to leave out, such as a third-party widget's own warnings. */
+    ignoreConsole?: RegExp;
+  },
 ): Promise<Inspection> {
-  const errors = watchErrors(page);
+  const errors = await watchErrors(page, ignoreConsole);
   const codes: ErrorCode[] = [];
   let error: string | null = null;
   let ready: Inspection['ready'] = null;
@@ -61,7 +101,11 @@ export async function inspectScenario(
     // A running session that didn't open the scenario was started with a different catalog.
     const running = await page.evaluate(() => !!globalThis.stateScenariosPage).catch(() => false);
 
+    const steps = await page.locator('html').getAttribute('data-scenario-steps').catch(() => null);
+
     if (active !== scenario.name) codes.push(running ? 'SCENARIO_NOT_IN_APP' : 'SESSION_NOT_STARTED');
+    // Steps still running when the wait ran out never finished, which is a failure of the steps too.
+    else if (steps === 'failed' || steps === 'running') codes.push('STEPS_FAILED');
     else if (scenario.ready) {
       codes.push('READY_TIMEOUT');
       const report = await page.evaluate((s) => globalThis.stateScenariosPage?.checkReady(s), scenario.ready);

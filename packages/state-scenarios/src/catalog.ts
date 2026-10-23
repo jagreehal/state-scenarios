@@ -103,6 +103,7 @@ function merge(base: Scenario, over: Scenario): Scenario {
     description: over.description,
     tags: over.tags,
     ready: over.ready,
+    steps: over.steps,
     // A null param removes the inherited one.
     url: Object.fromEntries(Object.entries({ ...base.url, ...over.url }).filter(([, v]) => v !== null)),
     network: [
@@ -156,13 +157,22 @@ export function diffScenario(captured: Scenario, base?: Scenario): ScenarioInput
       handlers: captured.handlers,
       state: captured.state,
       ready: captured.ready,
+      steps: captured.steps,
+      now: captured.now,
       viewport: captured.viewport,
     });
   }
 
   const url = diffUrl(base.url, captured.url);
   const network = diffNetwork(base.network ?? [], captured.network ?? []);
-  const state = diffObjects(base.state ?? {}, captured.state ?? {});
+
+  // A slice missing from the capture had no adapter connected: inherit it, since a top-level null
+  // would remove it.
+  const state = diffObjects(
+    Object.fromEntries(Object.entries(base.state ?? {}).filter(([k]) => k in (captured.state ?? {}))),
+    captured.state ?? {},
+  );
+
   const handlers = diffHandlers(base.handlers ?? [], captured.handlers ?? []);
 
   return compactScenario({
@@ -176,6 +186,8 @@ export function diffScenario(captured: Scenario, base?: Scenario): ScenarioInput
     handlers,
     state,
     ready: captured.ready,
+    steps: captured.steps,
+    now: captured.now !== base.now ? captured.now : undefined,
     viewport: jsonEqual(captured.viewport ?? null, base.viewport ?? null) ? undefined : captured.viewport,
   });
 }
@@ -291,6 +303,10 @@ function compactScenario(s: ScenarioInput): ScenarioInput {
   if (s.state !== undefined && Object.keys(s.state).length) out.state = s.state;
 
   if (s.ready !== undefined) out.ready = s.ready;
+
+  if (s.steps !== undefined && s.steps.length) out.steps = s.steps;
+
+  if (s.now !== undefined) out.now = s.now;
 
   if (s.viewport !== undefined) out.viewport = s.viewport;
 

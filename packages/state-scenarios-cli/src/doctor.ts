@@ -189,9 +189,14 @@ export async function runDoctor(
         }
 
         const save = await page.evaluate(async (endpoint) => {
-          const res = await fetch(endpoint).catch(() => undefined);
+          const res = await fetch(endpoint, { headers: { accept: 'application/json' } }).catch(() =>
+            undefined
+          );
 
-          return res?.ok ? JSON.stringify(await res.json()) : null;
+          // An app without the save route answers with its HTML page, as the panel's probe expects.
+          const isJson = res?.ok && res.headers.get('content-type')?.includes('json');
+
+          return res && isJson ? JSON.stringify(await res.json()) : null;
         }, '/__state-scenarios/save');
 
         checks.push(

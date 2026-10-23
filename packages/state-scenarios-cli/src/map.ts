@@ -107,11 +107,17 @@ const bases = (catalog: Catalog) => new Set(catalog.list.flatMap((s) => [s.exten
  * `unmapped` scenarios are states no row mentions (bases excluded).
  */
 export function coverage(rows: MapRow[], catalog: Catalog) {
-  const stale = rows.filter((r) => r.status === 'covered' && !catalog.get(r.scenario));
+  // A row may name several scenarios ("a,b"); it is stale when any of them doesn't exist.
+  const names = (r: MapRow) => r.scenario.split(',').filter(Boolean);
+
+  const stale = rows.filter((r) =>
+    r.status === 'covered' && (!names(r).length || names(r).some((n) => !catalog.get(n)))
+  );
+
   const covered = rows.filter((r) => r.status === 'covered').length - stale.length;
   // A stale row's state has no scenario, so it counts as missing.
   const missing = rows.filter((r) => r.status === 'missing').length + stale.length;
-  const mapped = new Set(rows.flatMap((r) => r.scenario.split(',')));
+  const mapped = new Set(rows.flatMap(names));
   const skip = bases(catalog);
 
   return {
@@ -188,7 +194,7 @@ export function affectedScenarios(
 
   const folder = `${dir.replace(/^\.\//, '').replace(/\/$/, '')}/`;
 
-  // 1. Scenario files, then everything that extends them.
+  // 1. Scenario files.
   for (const file of changed) {
     if (!file.path.startsWith(folder) || !file.path.endsWith('.json') || file.content === undefined) continue;
 
@@ -199,18 +205,6 @@ export function affectedScenarios(
       if (named.success) add(named.data.name, { kind: 'scenario', detail: file.path }, file.path);
     } catch {
       // Invalid JSON: validate reports it.
-    }
-  }
-
-  const children = (parent: string) =>
-    catalog.list.filter((s) => [s.extends ?? []].flat().includes(parent)).map((s) => s.name);
-
-  const queue = [...found.keys()];
-
-  for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
-    for (const child of children(parent)) {
-      if (!found.has(child)) queue.push(child);
-      add(child, { kind: 'extends', detail: parent });
     }
   }
 
@@ -262,13 +256,46 @@ export function affectedScenarios(
     }
   }
 
+  // 5. Everything that extends a scenario found above, however it was found: a child inherits its
+  // parent's fixtures and route, so whatever changes the parent can change the child.
+  const children = (parent: string) =>
+    catalog.list.filter((s) => [s.extends ?? []].flat().includes(parent)).map((s) => s.name);
+
+  const queue = [...found.keys()];
+
+  for (let parent = queue.shift(); parent !== undefined; parent = queue.shift()) {
+    for (const child of children(parent)) {
+      if (!found.has(child)) queue.push(child);
+      add(child, { kind: 'extends', detail: parent });
+    }
+  }
+
   const strength: Reason['kind'][] = ['scenario', 'extends', 'map', 'endpoint', 'route'];
-  const rank = (reasons: Reason[]) => Math.min(...reasons.map((r) => strength.indexOf(r.kind)));
+  // An inherited match is only as strong as its parent's own reason, so a child never sorts ahead
+  // of the parent that brought it in.
+  const ranks = new Map<string, number>();
+
+  const rank = (name: string): number => {
+    const known = ranks.get(name);
+
+    if (known !== undefined) return known;
+    ranks.set(name, strength.length); // a cycle in extends counts as the weakest
+
+    const best = Math.min(
+      ...(found.get(name) ?? []).map((
+        r,
+      ) => (r.kind === 'extends' ? rank(r.detail) : strength.indexOf(r.kind))),
+    );
+
+    ranks.set(name, best);
+
+    return best;
+  };
 
   return {
     scenarios: [...found]
       .map(([name, reasons]) => ({ name, reasons }))
-      .toSorted((a, b) => rank(a.reasons) - rank(b.reasons) || a.name.localeCompare(b.name)),
+      .toSorted((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name)),
     // Deleted files included: removing a shared stylesheet or component can change every state.
     unmatched: sources.filter((f) => !matched.has(f.path)).map((f) => f.path),
   };

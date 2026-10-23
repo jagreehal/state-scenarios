@@ -241,6 +241,109 @@
     "ready": {
       "type": "string"
     },
+    "steps": {
+      "minItems": 1,
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "click": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "click"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "fill": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "fill",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "check"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "select": {
+                "type": "string",
+                "minLength": 1
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "select",
+              "value"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "press": {
+                "type": "string",
+                "minLength": 1
+              },
+              "on": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "press"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "wait": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "wait"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "now": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
     "viewport": {
       "type": "object",
       "properties": {

@@ -56,17 +56,17 @@ what a screenshot can't show, such as the order things happen in.
 Read the topic for the job before you start. The files sit next to this one, and
 `npx state-scenarios guide <topic>` prints the same text from the installed package.
 
-| Topic               | File                                                               | Read it when                                                                                         |
-| ------------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
-| `setup`             | [references/setup.md](references/setup.md)                         | Adding state-scenarios to an app: install, wiring before render, routers created on import, adapters |
-| `writing-scenarios` | [references/writing-scenarios.md](references/writing-scenarios.md) | Writing or editing scenario JSON: fields, `extends`, sequences, loading states, rules                |
-| `capture`           | [references/capture.md](references/capture.md)                     | Making a scenario from the running app: the panel, `?scenario-record`, MCP `save_scenario`           |
-| `auth`              | [references/auth.md](references/auth.md)                           | Signed-in and signed-out states, cookies, apps that validate a token on startup                      |
-| `network`           | [references/network.md](references/network.md)                     | Strict mode, `allow`, `ignore` for analytics, an existing MSW setup, named handlers                  |
-| `verify`            | [references/verify.md](references/verify.md)                       | Checking a UI change: `affected`, `shoot`, before/after `--compare`, failure pages, `publish`        |
-| `media`             | [references/media.md](references/media.md)                         | Screenshots and videos for docs and websites: viewports, dark mode, locales, `record`, Remotion      |
-| `mcp`               | [references/mcp.md](references/mcp.md)                             | Driving the live app from a coding agent: open, observe, act, check ready, save                      |
-| `debugging`         | [references/debugging.md](references/debugging.md)                 | Something fails: `doctor`, error codes and exit codes, common causes                                 |
+| Topic               | File                                                               | Read it when                                                                                    |
+| ------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `setup`             | [references/setup.md](references/setup.md)                         | Adding state-scenarios to an app: wiring before render, adapters, an app you can't change       |
+| `writing-scenarios` | [references/writing-scenarios.md](references/writing-scenarios.md) | Writing or editing scenario JSON: fields, `extends`, sequences, loading states, steps, clock    |
+| `capture`           | [references/capture.md](references/capture.md)                     | Making a scenario from the running app: the panel, `?scenario-record`, MCP `save_scenario`      |
+| `auth`              | [references/auth.md](references/auth.md)                           | Signed-in and signed-out states, cookies, apps that validate a token on startup                 |
+| `network`           | [references/network.md](references/network.md)                     | Strict mode, `allow`, `ignore` for analytics, an existing MSW setup, named handlers             |
+| `verify`            | [references/verify.md](references/verify.md)                       | Checking a UI change: `affected`, `shoot`, before/after `--compare`, failure pages, `publish`   |
+| `media`             | [references/media.md](references/media.md)                         | Screenshots and videos for docs and websites: viewports, dark mode, locales, `record`, Remotion |
+| `mcp`               | [references/mcp.md](references/mcp.md)                             | Driving the live app from a coding agent: open, observe, act, check ready, save                 |
+| `debugging`         | [references/debugging.md](references/debugging.md)                 | Something fails: `doctor`, error codes and exit codes, common causes                            |
 
 ## Workflow
 

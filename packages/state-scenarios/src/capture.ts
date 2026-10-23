@@ -38,13 +38,24 @@ export function captureScenario(session: ScenarioSession, options: CaptureOption
   });
 
   // Saved scenarios get committed and shared: keep sessions and tokens out of them.
-  const { query: url } = redactQuery(params);
+  const { query: url, dropped } = redactQuery(params);
+
+  if (dropped.length) {
+    console.info(`[state-scenarios] left out query ${dropped.join(', ')} in the captured URL`);
+  }
 
   const state = Object.fromEntries(
     session.keys().flatMap((key) => {
-      const value = session.read(key);
+      const live = session.read(key);
 
-      return value === undefined ? [] : [[key, redactSecrets(value).value] as const];
+      if (live === undefined) return [];
+      const { value, redacted } = redactSecrets(live);
+
+      if (redacted.length) {
+        console.info(`[state-scenarios] redacted ${redacted.join(', ')} in state["${key}"]`);
+      }
+
+      return [[key, value] as const];
     }),
   );
 
@@ -59,6 +70,7 @@ export function captureScenario(session: ScenarioSession, options: CaptureOption
     network: network.length ? network : undefined,
     handlers: session.resolved?.handlers,
     viewport: session.resolved?.viewport,
+    now: session.resolved?.now,
     state,
     ready: options.ready || undefined,
   });

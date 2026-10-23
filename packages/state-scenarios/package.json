@@ -63,6 +63,11 @@
       "types": "./dist/adapters/cookies.d.ts",
       "source": "./src/adapters/cookies.ts",
       "import": "./dist/adapters/cookies.js"
+    },
+    "./storage": {
+      "types": "./dist/adapters/storage.d.ts",
+      "source": "./src/adapters/storage.ts",
+      "import": "./dist/adapters/storage.js"
     }
   },
   "imports": {

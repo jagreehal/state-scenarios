@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { captureScenario } from './capture.js';
-import { PARAM, readInline, RECORD_PARAM, SAVE_ENDPOINT, scenarioHref, STRICT_PARAM } from './link.js';
+import { isLoopbackSaveUrl, PARAM, readInline, SAVE_ENDPOINT, scenarioHref } from './link.js';
 import { checkReadySelector, closestReadySelector, suggestReadySelectors } from './ready.js';
 import type { ScenarioSession } from './runtime.js';
 import { parseScenario, type Scenario } from './schema.js';
@@ -10,7 +10,8 @@ const OPEN_KEY = 'scenario-panel:open';
 // "Saved …" survives the reload Vite does when a new file lands in the scenarios glob.
 const FLASH_KEY = 'scenario-panel:flash';
 
-const SaveProbeSchema = z.object({ dir: z.string(), url: z.string().optional() });
+// The panel posts the captured scenario to `url`, so only a loopback save server is accepted.
+const SaveProbeSchema = z.object({ dir: z.string(), url: z.string().refine(isLoopbackSaveUrl).optional() });
 
 const SaveResultSchema = z.object({ path: z.string().optional(), error: z.string().optional() });
 
@@ -160,7 +161,10 @@ class ScenarioPanel extends Base {
 
     const href = (s: Scenario) => {
       try {
-        return { href: scenarioHref(catalog.resolve(s), { strict: session.strict }), invalid: false };
+        return {
+          href: scenarioHref(catalog.resolve(s), { strict: session.strict, record: session.recording }),
+          invalid: false,
+        };
       } catch {
         return { href: `?${PARAM}=${encodeURIComponent(s.name)}`, invalid: true };
       }
@@ -710,11 +714,15 @@ const STYLES = `
   li[hidden] { display: none; }
   .list li { display: flex; align-items: stretch; gap: 4px; }
   .list a {
-    flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 8px;
-    text-decoration: none; border-left: 3px solid transparent;
+    flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px;
+    position: relative; padding: 8px 10px 8px 32px; border-radius: 8px; text-decoration: none;
   }
-  .list a:hover { background: var(--hover); }
-  .list a[aria-current] { border-left-color: var(--accent); background: var(--hover); }
+  .list a:hover, .list a[aria-current] { background: var(--hover); }
+  /* A check beside each active scenario; combined scenarios each get one. */
+  .list a[aria-current]::before {
+    content: ""; position: absolute; left: 11px; top: 12px; width: 12px; height: 7px;
+    border: solid var(--accent); border-width: 0 0 2px 2px; transform: rotate(-45deg);
+  }
   .list span { color: var(--muted); }
   .list small { color: var(--muted); font-size: 12px; }
   .add { width: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 18px; }

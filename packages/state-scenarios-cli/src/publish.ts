@@ -53,6 +53,17 @@ export function publishFiles(
   }
 
   const names = files.map((f) => basename(f));
+  // Each name becomes a line of `git mktree` input, so a tab or newline in one would add entries of
+  // its own. Names usually come from screenshots, which a pull request's code can choose.
+  const unsafe = names.find((n) => !/^[\w.-]+$/.test(n) || /^\.+$/.test(n));
+
+  if (unsafe !== undefined) {
+    throw new CliError(
+      'INVALID_ARGUMENT',
+      `file names may use letters, digits, ".", "_" and "-" only: ${JSON.stringify(unsafe)}`,
+    );
+  }
+
   const duplicate = names.find((n, i) => names.indexOf(n) !== i);
 
   if (duplicate) throw new CliError('INVALID_ARGUMENT', `two files are named ${duplicate}`);

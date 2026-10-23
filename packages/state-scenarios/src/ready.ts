@@ -125,8 +125,11 @@ export function suggestReadySelectors(
 }
 
 export type ReadyCheck =
-  /** `first` is what `openScenario` waits on; `visible` says whether it's showing now. */
-  | { status: 'match'; count: number; first: Element; visible: boolean; }
+  /**
+   * `first` is what `openScenario` waits on; `visible` says whether it's showing now.
+   * `firstVisible` is the first match that shows, which a step acts on.
+   */
+  | { status: 'match'; count: number; first: Element; visible: boolean; firstVisible?: Element; }
   | { status: 'none'; }
   /** A selector form this page can't evaluate (xpath, chains, regex…); Playwright still can. */
   | { status: 'unchecked'; }
@@ -156,7 +159,13 @@ export function checkReadySelector(selector: string, doc: Document = document): 
   const [first] = found;
 
   return first
-    ? { status: 'match', count: found.length, first, visible: isShown(first) }
+    ? {
+      status: 'match',
+      count: found.length,
+      first,
+      visible: isShown(first),
+      firstVisible: found.find(isShown),
+    }
     : { status: 'none' };
 }
 

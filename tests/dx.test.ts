@@ -121,7 +121,8 @@ describe('videoManifest', () => {
       start: 10_000,
       end: 14_250,
       clicks: [
-        { at: 11_000, x: 500, y: 250 },
+        // The crop shows 800x400 of the 1280x720 page, so the element covers 2.88 times as much of the video.
+        { at: 11_000, x: 500, y: 250, cover: 0.1 },
         // Before the video starts, and outside the crop: not in the video.
         { at: 9_000, x: 500, y: 250 },
         { at: 12_000, x: 50, y: 250 },
@@ -136,7 +137,7 @@ describe('videoManifest', () => {
       width: 400,
       height: 200,
       durationMs: 4250,
-      clicks: [{ t: 1000, x: 200, y: 100 }, { t: 2500, x: 100, y: 50, kind: 'focus' }],
+      clicks: [{ t: 1000, x: 200, y: 100, cover: 0.288 }, { t: 2500, x: 100, y: 50, kind: 'focus' }],
     });
   });
 });
@@ -170,6 +171,16 @@ describe('redactSecrets', () => {
       'apiKey',
       'items[0].sessionId',
     ]);
+  });
+
+  it('blanks well-known key formats under any key', () => {
+    const { value } = redactSecrets({
+      note: 'sk_live_abc123',
+      gh: `ghp_${'a'.repeat(36)}`,
+      aws: 'AKIAABCDEFGHIJKLMNOP',
+    });
+
+    expect(value).toEqual({ note: '[redacted]', gh: '[redacted]', aws: '[redacted]' });
   });
 
   it('leaves ordinary data, and already-unsigned tokens, alone', () => {

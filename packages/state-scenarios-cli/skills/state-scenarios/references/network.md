@@ -63,5 +63,8 @@ await startScenarios({ scenarios, handlers: { statementsEmpty } });
 }
 ```
 
+`namedHandlers(await import('./test/handlers'))` names every handler a module exports, so you
+don't list them one by one.
+
 An unknown name fails when the scenario opens and lists the known ones. `validate` can't see
 handlers, so it only checks the JSON.

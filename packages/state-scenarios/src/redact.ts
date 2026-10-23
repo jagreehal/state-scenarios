@@ -13,6 +13,9 @@ const TOKEN_KEY = /token|session[-_]?id|^sid$|^auth$|authorization|bearer|jwt|co
 const secretParam = (k: string) =>
   k.toLowerCase() === 'key' || /^sig$/i.test(k) || SECRET_KEY.test(k) || TOKEN_KEY.test(k);
 
+/** Values that are credentials whatever key holds them: Stripe, GitHub, AWS and Slack key formats. */
+const SECRET_VALUE = /^[sr]k_(live|test)_\w|^gh[pousr]_\w{20}|^github_pat_\w|^AKIA[0-9A-Z]{16}$|^xox[abprs]-/;
+
 /** Numeric bearer values: session ids. */
 const NUMERIC_ID_KEY = /session[-_]?id$|^sid$/i;
 
@@ -118,7 +121,7 @@ export function redactSecrets(value: Json): Redacted {
       return 0; // still a number, so the app's parsing and formatting keep working
     }
 
-    if (secret && text.success && text.data) {
+    if (text.success && text.data && (secret || SECRET_VALUE.test(text.data))) {
       redacted.push(path);
 
       return PLACEHOLDER;

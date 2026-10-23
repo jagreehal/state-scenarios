@@ -37,6 +37,7 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
   shoot      Open each scenario in Chromium, wait for its ready selector, screenshot it,
              and report requests it didn't mock. --base-url (required), --out, --only a,b, --no-strict,
              --element <selector> to capture one element instead of the full page.
+             --ignore-console <regex> leaves matching console errors out, e.g. a payment widget's CSP warnings.
              Each failed scenario gets <out>/<name>.md: what failed and how to fix it.
              --compare <dir> diffs each shot against an earlier run's PNGs and writes
              <out>/<name>.diff.png (before | after | changed) for each state that changed
@@ -66,13 +67,6 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
 Common: --rules file   module exporting \`rules\` (ScenarioRule[])
         --json         machine-readable output (list, shoot, doctor, affected, coverage, publish)`;
 
-declare global {
-  interface Window {
-    /** Set by record: reports each pointerdown, and each field taking focus, for the video's manifest. */
-    stateScenariosClick(x: number, y: number, kind?: 'focus'): void;
-  }
-}
-
 const MAX_SOURCE_CHARS = 800_000;
 
 const { positionals, values } = parseArgs({
@@ -84,6 +78,7 @@ const { positionals, values } = parseArgs({
     only: { type: 'string' },
     'no-strict': { type: 'boolean' },
     'no-panel': { type: 'boolean' },
+    'ignore-console': { type: 'string' },
     viewport: { type: 'string' },
     scale: { type: 'string' },
     'color-scheme': { type: 'string' },
@@ -139,6 +134,15 @@ const positive = (flag: 'fps' | 'width' | 'hold') => {
   }
 
   return text === undefined ? undefined : n;
+};
+
+/** --ignore-console as a RegExp, undefined when not passed. */
+const ignoreConsole = (text: string | undefined) => {
+  try {
+    return text === undefined ? undefined : new RegExp(text);
+  } catch {
+    throw new CliError('INVALID_ARGUMENT', `--ignore-console must be a regular expression, not "${text}"`);
+  }
 };
 
 const [command, dir = command === 'init' ? 'src/scenarios' : undefined] = positionals;
@@ -493,6 +497,7 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
           link: scenarioLink(baseURL, scenario),
           strict: !values['no-strict'],
           panel: !values['no-panel'],
+          ignoreConsole: ignoreConsole(values['ignore-console']),
         });
 
         const screenshot = join(out, `${s.name}.png`);
@@ -628,7 +633,7 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
       await checkServer(baseURL);
       const { openScenario, showCursor } = await import('state-scenarios/playwright');
       const record = await import('./record.js');
-      const { encodeVideo, pagePoint, videoManifest, visibleCrop } = record;
+      const { encodeVideo, pagePoint, reportPoints, videoManifest, visibleCrop } = record;
       // slowMo spaces out steps so viewers can follow them; glide lets the cursor arrive first.
       const browser = await launchChromium({ slowMo: 150 });
       let exitCode = 0;
@@ -677,7 +682,10 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         const page = await context.newPage();
         const began = Date.now();
         const file = join(out, `${name}.${format}`);
-        const clicks: Promise<{ at: number; x: number; y: number; kind?: 'focus'; } | undefined>[] = [];
+
+        const clicks: Promise<
+          { at: number; x: number; y: number; kind?: 'focus'; cover?: number; } | undefined
+        >[] = [];
 
         try {
           await showCursor(page, { ...cursor, glide: true });
@@ -686,49 +694,18 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
           // a detached one drops.
           await page.exposeBinding(
             'stateScenariosClick',
-            ({ frame }, x: number, y: number, kind?: 'focus') => {
+            ({ frame }, x: number, y: number, kind?: 'focus', cover?: number) => {
               const at = Date.now();
 
               clicks.push(
-                pagePoint(frame, x, y).then((point) => ({ at, ...point, kind }), () => undefined),
+                pagePoint(frame, x, y).then(
+                  (point) => ({ at, ...point, kind, ...(cover !== undefined && { cover }) }),
+                  () => undefined,
+                ),
               );
             },
           );
-          await page.addInitScript(() => {
-            let pressed: { x: number; y: number; t: number; } | undefined;
-
-            addEventListener('pointerdown', (e) => {
-              pressed = { x: e.clientX, y: e.clientY, t: performance.now() };
-              window.stateScenariosClick(e.clientX, e.clientY);
-            }, true);
-            // The glide before fill() moves the mouse, so the field's own point applies.
-            addEventListener('pointermove', () => pressed = undefined, true);
-            // A field taking focus is about to be typed into, so editors hold the camera on it.
-            // Focus from a click keeps the click's point; fill() focuses where the glide put the mouse.
-            addEventListener('focusin', (e) => {
-              const field = e.target;
-
-              if (
-                !(field instanceof Element)
-                || !field.matches(
-                  'textarea, select, [contenteditable]:not([contenteditable=false]), input:not([type=button], [type=submit], [type=reset], [type=checkbox], [type=radio], [type=file], [type=image], [type=range], [type=color])',
-                )
-              ) return;
-
-              if (pressed && performance.now() - pressed.t < 500) {
-                window.stateScenariosClick(pressed.x, pressed.y, 'focus');
-
-                return;
-              }
-
-              const box = field.getBoundingClientRect();
-              window.stateScenariosClick(
-                box.left + Math.min(24, box.width / 2),
-                box.top + box.height / 2,
-                'focus',
-              );
-            }, true);
-          });
+          await page.addInitScript(reportPoints);
           await openScenario(page, name, { path: resolved.path, strict: !values['no-strict'], panel: false });
           const crop = element ? await cropTo(page, element, options.viewport) : undefined;
 
