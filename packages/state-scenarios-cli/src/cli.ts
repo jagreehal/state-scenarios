@@ -37,6 +37,7 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
   shoot      Open each scenario in Chromium, wait for its ready selector, screenshot it,
              and report requests it didn't mock. --base-url (required), --out, --only a,b, --no-strict,
              --element <selector> to capture one element instead of the full page.
+             --ignore-console <regex> leaves matching console errors out, e.g. a payment widget's CSP warnings.
              Each failed scenario gets <out>/<name>.md: what failed and how to fix it.
              --compare <dir> diffs each shot against an earlier run's PNGs and writes
              <out>/<name>.diff.png (before | after | changed) for each state that changed
@@ -77,6 +78,7 @@ const { positionals, values } = parseArgs({
     only: { type: 'string' },
     'no-strict': { type: 'boolean' },
     'no-panel': { type: 'boolean' },
+    'ignore-console': { type: 'string' },
     viewport: { type: 'string' },
     scale: { type: 'string' },
     'color-scheme': { type: 'string' },
@@ -132,6 +134,15 @@ const positive = (flag: 'fps' | 'width' | 'hold') => {
   }
 
   return text === undefined ? undefined : n;
+};
+
+/** --ignore-console as a RegExp, undefined when not passed. */
+const ignoreConsole = (text: string | undefined) => {
+  try {
+    return text === undefined ? undefined : new RegExp(text);
+  } catch {
+    throw new CliError('INVALID_ARGUMENT', `--ignore-console must be a regular expression, not "${text}"`);
+  }
 };
 
 const [command, dir = command === 'init' ? 'src/scenarios' : undefined] = positionals;
@@ -486,6 +497,7 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
           link: scenarioLink(baseURL, scenario),
           strict: !values['no-strict'],
           panel: !values['no-panel'],
+          ignoreConsole: ignoreConsole(values['ignore-console']),
         });
 
         const screenshot = join(out, `${s.name}.png`);

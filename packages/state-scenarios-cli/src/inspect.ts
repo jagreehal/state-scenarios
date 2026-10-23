@@ -21,11 +21,23 @@ export interface Inspection {
 const firstLine = (err: Error | string) => (err instanceof Error ? err.message : err).split('\n')[0] ?? '';
 
 /**
+ * Logged inside another site's iframe, such as a payment or captcha widget, which the app
+ * doesn't control. A script from a CDN running in the app's own page still counts.
+ */
+function inOtherSitesFrame(page: Page, source: string) {
+  const origin = (url: string) => URL.parse(url)?.origin;
+  const from = origin(source);
+
+  return from !== undefined && from !== origin(page.url())
+    && page.frames().some((f) => f !== page.mainFrame() && origin(f.url()) === from);
+}
+
+/**
  * Collect uncaught exceptions and console errors from now on. Browser network logs
  * ("Failed to load resource") are left out: error scenarios cause them on purpose, and
  * requests the scenario didn't mock are reported as unhandled instead.
  */
-export function watchErrors(page: Page) {
+export function watchErrors(page: Page, ignore?: RegExp) {
   const pageErrors: string[] = [];
   const consoleErrors: string[] = [];
   page.on('pageerror', (err) => pageErrors.push(err.message));
@@ -36,7 +48,12 @@ export function watchErrors(page: Page) {
     const known = text.startsWith('Failed to load resource')
       || /^\[state-scenarios\] ".*" has no handler for /.test(text);
 
-    if (m.type() === 'error' && !known) consoleErrors.push(text);
+    if (
+      m.type() === 'error' && !known && !inOtherSitesFrame(page, m.location().url)
+      && !ignore?.test(text)
+    ) {
+      consoleErrors.push(text);
+    }
   });
 
   return { pageErrors, consoleErrors };
@@ -46,9 +63,15 @@ export function watchErrors(page: Page) {
 export async function inspectScenario(
   page: Page,
   scenario: Scenario,
-  { link, strict = true, panel = true }: { link: string; strict?: boolean; panel?: boolean; },
+  { link, strict = true, panel = true, ignoreConsole }: {
+    link: string;
+    strict?: boolean;
+    panel?: boolean;
+    /** Console errors to leave out, such as a third-party widget's own warnings. */
+    ignoreConsole?: RegExp;
+  },
 ): Promise<Inspection> {
-  const errors = watchErrors(page);
+  const errors = watchErrors(page, ignoreConsole);
   const codes: ErrorCode[] = [];
   let error: string | null = null;
   let ready: Inspection['ready'] = null;
