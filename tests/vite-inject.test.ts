@@ -39,7 +39,7 @@ describe('state-scenarios/vite inject', () => {
       root,
       configFile: false,
       logLevel: 'silent',
-      server: { port: 0, ws: false },
+      server: { host: '127.0.0.1', port: 0, ws: false },
       plugins: [
         stateScenarios({
           dir,

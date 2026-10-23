@@ -30,7 +30,7 @@ test.beforeAll(async () => {
     root,
     configFile: false,
     logLevel: 'silent',
-    server: { port: 0 },
+    server: { host: '127.0.0.1', port: 0 },
     plugins: [stateScenarios({ dir: join(root, 'scenarios'), inject: { panel: false } })],
   });
   await server.listen();
