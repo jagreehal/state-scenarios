@@ -48,5 +48,6 @@ recording keeps the claims and drops the signature.
 ## Signed out and expired
 
 Mock the validate endpoint with a 401 (or whatever the app treats as an expired session), and ready
-on the sign-in screen's heading. A scenario without the cookie only shows signed out in a browser
-that never had it, such as `shoot` and the MCP server, which start each run fresh.
+on the sign-in screen's heading. Clear the session cookie too, with an empty value:
+`"state": { "cookies": { "session": "" } }`. Without that, a browser that was signed in through
+another scenario keeps its cookie and stays signed in.

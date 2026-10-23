@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { http, HttpResponse } from 'msw';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cookiesAdapter } from '../packages/state-scenarios/src/adapters/cookies.ts';
 import { storageAdapter } from '../packages/state-scenarios/src/adapters/storage.ts';
 import { createCatalog } from '../packages/state-scenarios/src/catalog.ts';
 import { installClock } from '../packages/state-scenarios/src/clock.ts';
@@ -204,6 +205,18 @@ describe('scenario fields', () => {
     expect(resolved.steps).toBeUndefined();
     expect(() => parseScenario({ name: 'x', now: '2026-03-31' })).toThrow();
     expect(ScenarioSchema.safeParse({ name: 'x', steps: [{ hover: '#a' }] }).success).toBe(false);
+  });
+});
+
+describe('cookiesAdapter', () => {
+  it('removes a cookie given an empty value, for signed-out states', () => {
+    document.cookie = 'session=abc; path=/';
+    document.cookie = 'theme=dark; path=/';
+    const adapter = cookiesAdapter();
+
+    void adapter.apply({ session: '' });
+
+    expect(document.cookie).toBe('theme=dark');
   });
 });
 

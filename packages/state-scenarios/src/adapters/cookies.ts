@@ -6,6 +6,7 @@ const CookiesSchema = z.record(z.string(), z.string());
 /**
  * Connects `document.cookie` as `state.cookies` (or your key): `{ "authToken": "fake" }`.
  * Applied before the app renders, so cookie-based auth gates let the scenario in.
+ * An empty value removes the cookie, for signed-out states: `{ "authToken": "" }`.
  * It overwrites real cookies with the same name: sign in again after leaving scenarios.
  * Inline links can't set it; link to a catalog scenario by name instead.
  */
@@ -16,7 +17,9 @@ export const cookiesAdapter = (
   schema: CookiesSchema,
   apply: (cookies) => {
     for (const [name, value] of Object.entries(cookies)) {
-      document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=${path}`;
+      const expires = value === '' ? '; expires=Thu, 01 Jan 1970 00:00:00 GMT' : '';
+
+      document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=${path}${expires}`;
     }
   },
   read: () =>

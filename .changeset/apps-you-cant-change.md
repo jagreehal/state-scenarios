@@ -14,6 +14,7 @@ Open any state of an app you can't change, and reach states that need clicks or 
 
 - `steps`: `click`, `fill`, `check`, `select`, `press` and `wait`, taken once `ready` shows, for an open menu or a filled form. `openScenario`, `shoot` and agents wait for them, and `inspect` reports `STEPS_FAILED` when they throw or don't finish. Inline links skip them.
 - `now`: the time the app starts at, e.g. `"2031-03-31T09:00:00Z"`. The clock runs on from there.
+- An empty value in `state.cookies` removes that cookie, for signed-out states.
 - `storageAdapter()` from `state-scenarios/storage` sets `state.localStorage`, or `state.sessionStorage` with `{ area: 'session' }`.
 - `namedHandlers(...modules)` names every MSW handler a module exports.
 

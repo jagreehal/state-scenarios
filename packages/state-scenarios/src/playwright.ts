@@ -187,7 +187,9 @@ export async function routeScenario(
       if (top !== self) return;
 
       for (const [name, value] of pairs) {
-        document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=/`;
+        const expires = value === '' ? '; expires=Thu, 01 Jan 1970 00:00:00 GMT' : '';
+
+        document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=/${expires}`;
       }
     }, Object.entries(cookies.data));
   }
