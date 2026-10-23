@@ -1,7 +1,6 @@
 import type { Page } from '@playwright/test';
 import type { ReadyReport, Scenario } from 'state-scenarios';
 import { openScenario, unhandledRequests } from 'state-scenarios/playwright';
-import { z } from 'zod';
 import type { ErrorCode } from './errors.js';
 
 export interface Inspection {
@@ -20,8 +19,6 @@ export interface Inspection {
 }
 
 const firstLine = (err: Error | string) => (err instanceof Error ? err.message : err).split('\n')[0] ?? '';
-
-const FrameAux = z.object({ frameId: z.string() });
 
 /**
  * Collect uncaught exceptions and console errors from now on. Only the app's frames count: the
@@ -47,39 +44,33 @@ export async function watchErrors(page: Page, ignore?: RegExp) {
   // Playwright doesn't say which frame logged a message; Chromium's protocol does. This session
   // sees the page's own process: other sites' iframes run in processes of their own.
   const cdp = await page.context().newCDPSession(page);
-  const frameOf = new Map<number, string>();
-  const urlOf = new Map<string, string>();
-  const origin = (frame = '') => URL.parse(urlOf.get(frame) ?? '')?.origin;
-  let main = '';
+  // The origin each script context runs with: a srcdoc or about:blank iframe has its parent's.
+  const originOf = new Map<number, string>();
+  let app = '';
+  // Enabling Runtime and Log replays messages logged before now, such as a previous scenario's.
+  const since = Date.now();
 
   cdp.on('Page.frameNavigated', ({ frame }) => {
-    urlOf.set(frame.id, frame.url);
-
-    if (!frame.parentId) main = frame.id;
+    if (!frame.parentId) app = frame.securityOrigin;
   });
-  cdp.on('Runtime.executionContextCreated', ({ context }) => {
-    const aux = FrameAux.safeParse(context.auxData);
-
-    if (aux.success) frameOf.set(context.id, aux.data.frameId);
-  });
-  cdp.on('Runtime.consoleAPICalled', ({ type, args, executionContextId }) => {
-    const frame = frameOf.get(executionContextId);
-
-    if (type !== 'error' || (frame !== main && origin(frame) !== origin(main))) return;
+  cdp.on('Runtime.executionContextCreated', ({ context }) => originOf.set(context.id, context.origin));
+  cdp.on('Runtime.consoleAPICalled', ({ type, args, executionContextId, timestamp }) => {
+    if (type !== 'error' || timestamp < since || originOf.get(executionContextId) !== app) return;
     record(args.map((a) => String(a.value ?? a.description ?? '')).join(' '));
   });
   // The browser's own messages. A content security policy's refusal names the document whose
   // policy it is, so a widget's own policy doesn't count.
   cdp.on('Log.entryAdded', ({ entry }) => {
     const elsewhere = entry.source === 'security' && entry.url !== undefined
-      && URL.parse(entry.url)?.origin !== origin(main);
+      && URL.parse(entry.url)?.origin !== app;
 
-    if (entry.level === 'error' && entry.source !== 'network' && !elsewhere) record(entry.text);
+    if (entry.level === 'error' && entry.timestamp >= since && entry.source !== 'network' && !elsewhere) {
+      record(entry.text);
+    }
   });
 
   const { frameTree } = await cdp.send('Page.getFrameTree');
-  main = frameTree.frame.id;
-  urlOf.set(main, frameTree.frame.url);
+  app = frameTree.frame.securityOrigin;
   await Promise.all([cdp.send('Page.enable'), cdp.send('Runtime.enable'), cdp.send('Log.enable')]);
 
   return { pageErrors, consoleErrors };

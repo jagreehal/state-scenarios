@@ -63,3 +63,29 @@ test('leaves out console errors that match ignore', async ({ page }) => {
 
   expect(errors.consoleErrors).toEqual(['app broke']);
 });
+
+test("counts a srcdoc iframe's errors: it runs with the app's origin", async ({ page }) => {
+  await serve(
+    page,
+    'http://app.test/',
+    `<iframe srcdoc="<script>console.error('srcdoc broke')</script>"></iframe>`,
+  );
+  const errors = await watchErrors(page);
+
+  await page.goto('http://app.test/');
+
+  await expect.poll(() => errors.consoleErrors).toEqual(['srcdoc broke']);
+});
+
+test('a new watcher reports only what happens after it starts, not an earlier scenario', async ({ page }) => {
+  await serve(page, 'http://app.test/', `<script>console.error('first scenario broke')</script>`);
+  await page.goto('http://app.test/');
+  await page.evaluate(() => console.error('also before'));
+
+  const errors = await watchErrors(page);
+  await page.evaluate(() => console.error('second scenario broke'));
+
+  await expect.poll(() => errors.consoleErrors).toEqual(['second scenario broke']);
+  await page.waitForTimeout(200);
+  expect(errors.consoleErrors).toEqual(['second scenario broke']);
+});
