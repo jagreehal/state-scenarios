@@ -2,6 +2,7 @@ import { BadRequestError } from '@anthropic-ai/sdk';
 import type { MessageCreateParamsNonStreaming } from '@anthropic-ai/sdk/resources/beta/messages';
 import { QueryClient } from '@tanstack/react-query';
 import Ajv2020 from 'ajv/dist/2020.js';
+import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import { readdirSync, readFileSync } from 'node:fs';
 import { createStore } from 'redux';
@@ -22,7 +23,7 @@ import { tanstackQuery } from '../packages/state-scenarios/src/adapters/tanstack
 import { xstateAdapter } from '../packages/state-scenarios/src/adapters/xstate.ts';
 import { zustandAdapter } from '../packages/state-scenarios/src/adapters/zustand.ts';
 import { createCatalog, defineScenarioRules } from '../packages/state-scenarios/src/catalog.ts';
-import { readInline, scenarioHref } from '../packages/state-scenarios/src/link.ts';
+import { isLoopbackSaveUrl, readInline, scenarioHref } from '../packages/state-scenarios/src/link.ts';
 import { toHandlers } from '../packages/state-scenarios/src/network.ts';
 import { parseScenario, type ScenarioInput } from '../packages/state-scenarios/src/schema.ts';
 
@@ -155,6 +156,11 @@ describe('links', () => {
     expect(url.searchParams.has('scenario-strict')).toBe(true);
   });
 
+  it('keep recording, so switching scenarios goes on recording', () => {
+    const href = scenarioHref(parseScenario({ name: 'empty' }), { base: 'http://app.test/', record: true });
+    expect(new URL(href).searchParams.has('scenario-record')).toBe(true);
+  });
+
   it("open the scenario's route, inherited through extends", () => {
     const catalog = createCatalog([
       { name: 'order', path: '/orders/42' },
@@ -165,6 +171,16 @@ describe('links', () => {
 
     expect(new URL(scenarioHref(resolved, { base: 'http://app.test/dashboard?x=1' })).pathname)
       .toBe('/orders/42');
+  });
+});
+
+describe('save URLs from the app', () => {
+  it('are accepted only for a loopback save server', () => {
+    expect(isLoopbackSaveUrl('http://127.0.0.1:4321/__state-scenarios/save')).toBe(true);
+    expect(isLoopbackSaveUrl('http://localhost:4321/__state-scenarios/save')).toBe(true);
+    expect(isLoopbackSaveUrl('https://evil.test/__state-scenarios/save')).toBe(false);
+    expect(isLoopbackSaveUrl('http://127.0.0.1:4321/other')).toBe(false);
+    expect(isLoopbackSaveUrl('not a url')).toBe(false);
   });
 });
 
@@ -217,6 +233,25 @@ describe('toHandlers', () => {
     ]);
     expect(await (await get('/page')).text()).toBe('<h1>Down</h1>');
     expect(await (await get('/word')).text()).toBe('"ok"');
+  });
+
+  it('never answers for code, and marks fixtures nosniff', async () => {
+    server.use(http.get('*', () => HttpResponse.text('real')));
+    use([
+      {
+        path: 'http://api.test/script',
+        response: { headers: { 'content-type': 'text/javascript' }, text: 'evil()' },
+      },
+      { path: 'http://api.test/:file', response: { body: 'fixture' } },
+      { path: 'http://api.test/node_modules/x', response: { body: 'fixture' } },
+    ]);
+    expect(await (await get('/chunk.js')).text()).toBe('real');
+    expect(await (await get('/node_modules/x')).text()).toBe('real');
+    // Refused, so the request falls through to the next entry.
+    expect(await (await get('/script')).text()).toBe('"fixture"');
+    const res = await get('/data');
+    expect(await res.json()).toBe('fixture');
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
   });
 
   it('plays a sequence and repeats the last response', async () => {

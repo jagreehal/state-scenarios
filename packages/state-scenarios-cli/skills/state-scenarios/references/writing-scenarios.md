@@ -10,6 +10,8 @@
 | `handlers`            | Names of MSW handlers passed to `startScenarios({ handlers })`                                                                            | combined                                                                 |
 | `state`               | Per-adapter state, keyed by adapter key                                                                                                   | deep-merged; `null` removes                                              |
 | `ready`               | Playwright selector visible once this state shows                                                                                         | not inherited                                                            |
+| `steps`               | Clicks and typing once `ready` shows, for an open dialog or a filled form                                                                 | not inherited                                                            |
+| `now`                 | ISO time with a zone, e.g. `"2031-03-31T09:00:00Z"`; the app's clock starts there and runs on                                             | inherited                                                                |
 | `viewport`            | `{ "width": 390, "height": 844 }` for `shoot` and `record`                                                                                | inherited                                                                |
 | `description`, `tags` | For people and the panel                                                                                                                  | not inherited                                                            |
 
@@ -31,6 +33,24 @@ then succeed on retry:
 ```
 
 Loading state: `"response": { "delay": "infinite" }` and `"ready": "text=Loading orders…"`.
+
+## Steps
+
+Use `steps` for UI state no response produces. Each one waits for its selector, then acts the way a
+person would, pointer events included:
+
+```json
+{
+  "name": "order-actions-open",
+  "extends": "orders",
+  "ready": "text=Order #1",
+  "steps": [{ "click": "role=button[name=\"Actions\"]" }, { "wait": "role=menu" }]
+}
+```
+
+Step types: `click`, `fill` + `value`, `check`, `select` + `value`, `press` (optional `on`), `wait`.
+Selectors take `text=`, `role=` or CSS. `<html data-scenario-steps>` reads `running`, `done` or
+`failed`; `openScenario` waits for `done`. Steps never run from an inline link.
 
 ## Ready selectors
 

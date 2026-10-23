@@ -64,6 +64,15 @@ describe('coverage', () => {
     // default and orders-empty are extended, so they're bases; profile is a state no row names.
     expect(result.unmapped).toEqual(['profile']);
   });
+
+  it('counts a row naming several scenarios as stale when any is gone', () => {
+    const rows = parseMap(MAP.replace('`orders-empty` |', '`orders-empty,gone` |'), 'map.md');
+
+    expect(coverage(rows, catalog).stale.map((r) => r.scenario)).toEqual([
+      'orders-empty,gone',
+      'orders-slow',
+    ]);
+  });
 });
 
 describe('endpointStem', () => {
@@ -100,9 +109,14 @@ describe('affectedScenarios', () => {
 
     const reasons = Object.fromEntries(scenarios.map((s) => [s.name, s.reasons.map((r) => r.kind)]));
 
-    expect(reasons['orders-empty']).toEqual(['map', 'endpoint', 'route']);
+    expect(reasons['orders-empty']).toEqual(['map', 'endpoint', 'route', 'extends']);
     expect(reasons.default).toEqual(['endpoint']);
     expect(reasons.profile).toEqual(['route']);
+    // Its parent was found by a map row, so it is found through extends too, and sorted after it.
+    expect(reasons['orders-error']).toContain('extends');
+    expect(scenarios.map((s) => s.name).indexOf('orders-error')).toBeGreaterThan(
+      scenarios.map((s) => s.name).indexOf('orders-empty'),
+    );
     expect(unmatched).toEqual(['src/theme.css', 'src/gone.tsx']);
   });
 });
@@ -135,6 +149,10 @@ describe('publish', () => {
       const [link] = publishFiles({ files: ['b.png'], folder: 'pr-1' });
 
       expect(link?.url).toMatch(/^scenario-shots@[0-9a-f]{12}:pr-1\/b\.png$/);
+      // A tab would start another `git mktree` entry.
+      expect(() => publishFiles({ files: ['x\t100644 blob 0\tevil.png'], folder: 'pr-1' })).toThrow(
+        'file names',
+      );
     } finally {
       process.chdir(cwd);
     }

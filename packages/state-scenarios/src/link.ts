@@ -16,6 +16,23 @@ export const RECORD_PARAM = 'scenario-record';
 /** Dev-server route the `state-scenarios/vite` plugin serves for the panel's "Save to project". */
 export const SAVE_ENDPOINT = '/__state-scenarios/save';
 
+export const LOOPBACK = new Set(['127.0.0.1', 'localhost', '[::1]']);
+
+/**
+ * Whether a save URL the app's save route hands the panel is a loopback save server, such as
+ * the one the Next.js route starts on 127.0.0.1. The panel posts captured state there, so a
+ * URL on any other host is refused.
+ */
+export const isLoopbackSaveUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+
+    return url.protocol === 'http:' && LOOPBACK.has(url.hostname) && url.pathname === SAVE_ENDPOINT;
+  } catch {
+    return false;
+  }
+};
+
 /** Inline scenario JSON, kept in the URL hash so it never reaches a server. */
 export const DATA_KEY = 'scenario-data';
 
@@ -25,7 +42,7 @@ export const DATA_KEY = 'scenario-data';
  */
 export function scenarioHref(
   resolved: Scenario,
-  { base = location.href, inline = false, strict = false } = {},
+  { base = location.href, inline = false, strict = false, record = false } = {},
 ): string {
   const url = new URL(base);
   url.search = '';
@@ -45,6 +62,8 @@ export function scenarioHref(
   }
 
   if (strict) url.searchParams.set(STRICT_PARAM, '');
+
+  if (record) url.searchParams.set(RECORD_PARAM, '');
 
   return url.toString();
 }

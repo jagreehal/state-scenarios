@@ -15,7 +15,7 @@ export { redactSecrets } from './redact.js';
 
 export { DATA_KEY, PARAM, readInline, RECORD_PARAM, scenarioHref, STRICT_PARAM } from './link.js';
 
-export { toHandlers } from './network.js';
+export { isCode, namedHandlers, toHandlers } from './network.js';
 
 export { checkReadySelector, type ReadyCheck, selectorForElement, suggestReadySelectors } from './ready.js';
 

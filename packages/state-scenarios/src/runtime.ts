@@ -2,8 +2,10 @@ import type { RequestHandler } from 'msw';
 import type { SetupWorker } from 'msw/browser';
 import type { z } from 'zod';
 import { type Catalog, createCatalog, type ScenarioRule } from './catalog.js';
+import { installClock } from './clock.js';
 import {
   DATA_KEY,
+  LOOPBACK,
   PARAM,
   readInline,
   RECORD_PARAM,
@@ -21,6 +23,7 @@ import {
   type ScenarioInput,
   type Serializable,
 } from './schema.js';
+import { runSteps } from './steps.js';
 
 const STORAGE_KEY = 'state-scenarios:active';
 
@@ -70,6 +73,12 @@ export interface StartOptions {
   /** Adapters available before render. Components can `connect` more later. */
   adapters?: Adapter<unknown>[];
   rules?: ScenarioRule[];
+  /**
+   * Open inline share links (`#scenario-data=...`). Anyone can write one, and it fakes API
+   * responses for whoever opens it, so by default they only open on localhost.
+   * Pass `true` on a staging or preview deploy that should open them; `false` refuses them everywhere.
+   */
+  allowLinks?: boolean;
   /**
    * Answer unmatched requests with 501 instead of passing them to the real network.
    * Assets and page loads always pass. Also switched on by `?scenario-strict`.
@@ -256,7 +265,7 @@ interface Selection {
 export async function startScenarios(options: StartOptions): Promise<ScenarioSession> {
   const catalog = createCatalog(options.scenarios, { rules: options.rules });
   const url = new URL(location.href);
-  const selection = select(url, options.defaultScenario);
+  const selection = select(url, options.defaultScenario, options.allowLinks ?? LOOPBACK.has(url.hostname));
   const unhandled: string[] = [];
   globalThis.stateScenariosUnhandled = unhandled;
 
@@ -331,6 +340,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
   // Whether the active scenario came from an inline link.
   let fromLink = false;
+  // Puts the real Date back, when a scenario's `now` replaced it.
+  let restoreClock: (() => void) | undefined;
 
   /** Validate every adapter's state up front, so nothing changes if any of it is invalid. */
   const prepareStates = (resolved: Scenario, adapters: Bound[], link = fromLink) =>
@@ -361,7 +372,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   // MSW loads only when a scenario mocks the network or strict mode needs a catch-all.
   const setNetwork = async (resolved: Scenario) => {
     if (!mocks(resolved) && !session.strict && !session.recording && !worker) return;
-    const [{ toHandlers }, msw] = await Promise.all([import('./network.js'), import('msw')]);
+    const [{ isCode, toHandlers }, msw] = await Promise.all([import('./network.js'), import('msw')]);
 
     if (destroyed) return;
 
@@ -390,8 +401,15 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       return msw.HttpResponse.json({ message: `No scenario handler for ${label}` }, { status: 501 });
     });
 
+    // Named and app handlers are written for the API, so a broad one such as `*/orders/:id` would
+    // also answer a page load or a lazy chunk; those always pass.
+    const code = msw.http.all(
+      '*',
+      ({ request }) => request.mode === 'navigate' || isCode(request.url) ? msw.passthrough() : undefined,
+    );
+
     // Scenario first, then its named handlers, then the app's own, then the catch-all.
-    const handlers = [...toHandlers(resolved.network), ...named(resolved), ...appHandlers, fallback];
+    const handlers = [code, ...toHandlers(resolved.network), ...named(resolved), ...appHandlers, fallback];
 
     if (worker) {
       worker.resetHandlers(...handlers);
@@ -415,17 +433,47 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     listen(started);
   };
 
+  let stepsRun = 0;
+
   const activate = (active: Scenario, resolved: Scenario, link: boolean) => {
     fromLink = link;
     session.active = active;
     session.resolved = resolved;
-    // Tests and agents wait on these: html[data-scenario="name"], then the ready selector.
+    // Tests and agents wait on these: html[data-scenario="name"], then the ready selector,
+    // then data-scenario-steps leaving "running".
     const html = document.documentElement;
     markerOwner = session;
     html.dataset.scenario = resolved.name;
 
     if (resolved.ready) html.dataset.scenarioReady = resolved.ready;
     else delete html.dataset.scenarioReady;
+
+    const run = ++stepsRun;
+    delete html.dataset.scenarioSteps;
+
+    if (!resolved.steps) return;
+
+    // Steps click and type into the app, so a link anyone can write never runs them.
+    if (link) {
+      console.warn(`[state-scenarios] ignored the steps of "${resolved.name}": a link can't run steps`);
+
+      return;
+    }
+
+    html.dataset.scenarioSteps = 'running';
+    const current = () => run === stepsRun && !destroyed;
+    // Not awaited: the app renders after startScenarios returns, and the steps wait for it.
+    const ready = resolved.ready ? [{ wait: resolved.ready }] : [];
+    runSteps([...ready, ...resolved.steps], { current }).then(
+      () => {
+        if (current()) html.dataset.scenarioSteps = 'done';
+      },
+      (err) => {
+        if (!current()) return;
+        html.dataset.scenarioSteps = 'failed';
+        console.error(`[state-scenarios] steps of "${resolved.name}" failed:`, err);
+      },
+    );
   };
 
   let transition = 0;
@@ -442,7 +490,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     // Opening a scenario always restarts its network: fresh handler sequences, refetched data.
     const mocksNetwork = worker !== null || mocks(resolved) || session.strict;
 
-    const href = scenarioHref(resolved, { inline, strict: session.strict });
+    const href = scenarioHref(resolved, { inline, strict: session.strict, record: session.recording });
 
     const inPlace = prev !== null
       // Compare with the app's actual URL: URL-driven UI only resets on a reload.
@@ -451,6 +499,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       && (!mocksNetwork || !!options.refresh)
       // Can't un-apply state, and can't apply state nobody is connected to receive.
       && Object.keys(prev.state ?? {}).every((k) => nextKeys.includes(k))
+      // The clock is set before the app starts.
+      && prev.now === resolved.now
       && nextKeys.every((k) => connected.get(k)?.adapter.inPlace === true);
 
     if (!inPlace) {
@@ -515,7 +565,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     catalog,
     active: null,
     resolved: null,
-    strict: options.strict ?? !!selection?.strict,
+    // Read apart from the selection: `?scenario-strict` alone still blocks the real network.
+    strict: options.strict ?? (!!selection?.strict || url.searchParams.has(STRICT_PARAM)),
     unhandled,
     // Held in memory: a full page load starts a new recording.
     recording: options.record ?? url.searchParams.has(RECORD_PARAM),
@@ -562,6 +613,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       if (destroyed) return;
       destroyed = true;
       transition++; // drop queued switches
+      restoreClock?.();
 
       for (const entry of connected.values()) entry.unsubscribe?.();
       connected.clear();
@@ -584,6 +636,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
         markerOwner = null;
         delete document.documentElement.dataset.scenario;
         delete document.documentElement.dataset.scenarioReady;
+        delete document.documentElement.dataset.scenarioSteps;
       }
     },
   };
@@ -619,8 +672,9 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   for (const adapter of initial) attach(adapter);
 
   if (!selection) {
-    // Nothing to mock, but recording needs the worker to see the real responses.
-    if (session.recording) await setNetwork({ name: 'live' });
+    // Nothing to mock, but recording needs the worker to see the real responses,
+    // and strict mode needs its catch-all.
+    if (session.recording || session.strict) await setNetwork({ name: 'live' });
 
     return session;
   }
@@ -643,6 +697,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   })();
 
   const { active, resolved, prepared } = loaded;
+
+  if (resolved.now) restoreClock = installClock(resolved.now);
   await setNetwork(resolved);
 
   if (destroyed) return session;
@@ -691,14 +747,22 @@ const byKey = ([a]: [string, string | null], [b]: [string, string | null]) => a.
 
 /** The app's own query params (scenario params excluded), sorted for comparison. */
 const appParams = (search: string) =>
-  [...new URLSearchParams(search)].filter(([k]) => k !== PARAM && k !== STRICT_PARAM).toSorted(byKey);
+  [...new URLSearchParams(search)].filter(([k]) => k !== PARAM && k !== STRICT_PARAM && k !== RECORD_PARAM)
+    .toSorted(byKey);
 
 const sortedParams = (url: Scenario['url']) =>
   Object.entries(url ?? {}).filter(([, v]) => v !== null).toSorted(byKey);
 
-/** Go to a scenario link, reloading even when only the hash changes. */
+/**
+ * Go to a scenario link, reloading even when only the hash changes. Scenario links stay on the
+ * app, so another origin (or a `javascript:` URL, whose origin is `null`) is refused.
+ */
 export function navigate(href: string) {
   const next = new URL(href, location.href);
+
+  if (next.origin !== location.origin) {
+    throw new Error(`[state-scenarios] navigate: ${next.origin} is not this app (${location.origin})`);
+  }
 
   if (next.pathname + next.search === location.pathname + location.search) {
     replaceUrl(next);
@@ -713,8 +777,14 @@ export function navigate(href: string) {
  * selection, so navigation that drops the query keeps the scenario.
  * `?scenario=` (empty) resets to the default.
  */
-function select(url: URL, fallback?: string): Selection | null {
-  const data = readInline(url.hash);
+function select(url: URL, fallback: string | undefined, allowLinks: boolean): Selection | null {
+  let data = readInline(url.hash);
+
+  if (data && !allowLinks) {
+    refuseLink(url);
+    data = null;
+  }
+
   const name = url.searchParams.get(PARAM);
   const strict = url.searchParams.has(STRICT_PARAM);
 
@@ -726,7 +796,14 @@ function select(url: URL, fallback?: string): Selection | null {
     url.searchParams.delete(PARAM);
     store(null);
   } else {
-    const stored = load();
+    let stored = load();
+
+    if (stored?.data && !allowLinks) {
+      refuseLink(url);
+      store(null);
+      stored = null;
+    }
+
     // An explicit ?scenario-strict in the current URL wins over the stored flag.
     selection = stored && { ...stored, strict: stored.strict || strict };
 
@@ -741,6 +818,13 @@ function select(url: URL, fallback?: string): Selection | null {
   if (selection) store(selection);
 
   return selection ?? (fallback ? { name: fallback, strict } : null);
+}
+
+function refuseLink(url: URL) {
+  url.hash = '';
+  console.warn(
+    `[state-scenarios] ignored an inline scenario link: links only open on localhost unless startScenarios({ allowLinks: true })`,
+  );
 }
 
 /** One name, or several joined with commas: later ones win, like `extends`. */

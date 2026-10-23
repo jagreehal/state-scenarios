@@ -1,9 +1,10 @@
-import { http, HttpResponse } from 'msw';
+import { getResponse, http, HttpResponse, RequestHandler } from 'msw';
 import { setupServer } from 'msw/node';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import {
   currentSession,
+  navigate,
   startScenarios,
   type TypedAdapter,
 } from '../packages/state-scenarios/src/runtime.ts';
@@ -229,9 +230,51 @@ describe('state a link must not set (fromLinks: false)', () => {
     browser(`http://app.test/#${new URLSearchParams({ 'scenario-data': data })}`);
     const applied: string[] = [];
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const session = await startScenarios({ scenarios: [], adapters: [tracked(applied)] });
+    const session = await startScenarios({ scenarios: [], adapters: [tracked(applied)], allowLinks: true });
     expect(session.active?.name).toBe('evil');
     expect(applied).toEqual([]);
+  });
+});
+
+describe('inline links', () => {
+  const link = (host: string) => {
+    const data = JSON.stringify({ name: 'shared', state: { count: 9 } });
+
+    return `http://${host}/#${new URLSearchParams({ 'scenario-data': data })}`;
+  };
+
+  it('open on localhost by default', async () => {
+    browser(link('localhost:5173'));
+    const session = await startScenarios({ scenarios: [], adapters: [slowAdapter([])] });
+    expect(session.active?.name).toBe('shared');
+  });
+
+  it('are refused elsewhere unless allowLinks', async () => {
+    browser(link('app.test'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const session = await startScenarios({ scenarios: [], adapters: [slowAdapter([])] });
+    expect(session.active).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('allowLinks'));
+
+    browser(link('app.test'));
+    expect((await startScenarios({ scenarios: [], allowLinks: true })).active?.name).toBe('shared');
+  });
+
+  it('a stored inline selection is refused too, and forgotten', async () => {
+    browser(link('app.test'));
+    await startScenarios({ scenarios: [], allowLinks: true });
+    history.replaceState(null, '', new URL('http://app.test/'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    expect((await startScenarios({ scenarios: [], allowLinks: false })).active).toBeNull();
+    expect(sessionStorage.getItem('state-scenarios:active')).toBeNull();
+  });
+});
+
+describe('navigate', () => {
+  it('refuses another origin and javascript: URLs', () => {
+    browser('http://app.test/');
+    expect(() => navigate('https://evil.test/')).toThrow(/not this app/);
+    expect(() => navigate('javascript:alert(1)')).toThrow(/not this app/);
   });
 });
 
@@ -343,6 +386,31 @@ describe("with the app's own MSW worker", () => {
     } finally {
       server.close();
     }
+  });
+
+  it('lets page loads and code past named handlers, however broadly they match', async () => {
+    const server = setupServer();
+    browser('http://app.test/?scenario=broad');
+
+    const session = await startScenarios({
+      scenarios: [{ name: 'broad', handlers: ['broad'] }],
+      handlers: { broad: http.get('http://app.test/*', () => HttpResponse.text('named')) },
+      worker: server,
+    });
+
+    const answer = async (path: string) => {
+      const res = await getResponse(
+        [...server.listHandlers()].filter((h) => h instanceof RequestHandler),
+        new Request(`http://app.test${path}`),
+      );
+
+      return res?.headers.get('x-msw-intention') ?? (await res?.text());
+    };
+
+    expect(await answer('/api/orders')).toBe('named');
+    expect(await answer('/src/pages/orders/index.tsx')).toBe('passthrough');
+    expect(await answer('/assets/orders-1a2b.js')).toBe('passthrough');
+    session.destroy();
   });
 
   it('detaches its recording listeners on destroy', async () => {

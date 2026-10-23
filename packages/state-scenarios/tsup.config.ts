@@ -14,6 +14,7 @@ export default defineConfig({
     'src/adapters/redux.ts',
     'src/adapters/xstate.ts',
     'src/adapters/cookies.ts',
+    'src/adapters/storage.ts',
     'src/no-msw-browser.ts',
   ],
   // Resolved by the app's bundler through package.json "imports", so SSR builds get the stub.

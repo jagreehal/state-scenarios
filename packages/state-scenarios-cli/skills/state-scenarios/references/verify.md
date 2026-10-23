@@ -56,7 +56,7 @@ images still loading show as changes.
 The terminal names a page for it: `❯ details .scenario-shots/<name>.md`. Read that page. It has:
 
 - the codes (`READY_TIMEOUT`, `UNMOCKED_REQUEST`, `SESSION_NOT_STARTED`, `SCENARIO_NOT_IN_APP`, `PAGE_ERROR`,
-  `CONSOLE_ERROR`, `ELEMENT_NOT_FOUND`) and the link that reopens the state;
+  `CONSOLE_ERROR`, `ELEMENT_NOT_FOUND`, `STEPS_FAILED`) and the link that reopens the state;
 - for a ready timeout, whether the selector matched anything, plus distinctive selectors on the
   page now;
 - for unmocked requests, `network` entries ready to paste (fill in real bodies, or record them);

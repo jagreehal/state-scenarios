@@ -61,7 +61,11 @@ export async function inspectScenario(
     // A running session that didn't open the scenario was started with a different catalog.
     const running = await page.evaluate(() => !!globalThis.stateScenariosPage).catch(() => false);
 
+    const steps = await page.locator('html').getAttribute('data-scenario-steps').catch(() => null);
+
     if (active !== scenario.name) codes.push(running ? 'SCENARIO_NOT_IN_APP' : 'SESSION_NOT_STARTED');
+    // Steps still running when the wait ran out never finished, which is a failure of the steps too.
+    else if (steps === 'failed' || steps === 'running') codes.push('STEPS_FAILED');
     else if (scenario.ready) {
       codes.push('READY_TIMEOUT');
       const report = await page.evaluate((s) => globalThis.stateScenariosPage?.checkReady(s), scenario.ready);

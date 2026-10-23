@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { captureScenario } from './capture.js';
-import { PARAM, readInline, RECORD_PARAM, SAVE_ENDPOINT, scenarioHref, STRICT_PARAM } from './link.js';
+import { isLoopbackSaveUrl, PARAM, readInline, SAVE_ENDPOINT, scenarioHref } from './link.js';
 import { checkReadySelector, closestReadySelector, suggestReadySelectors } from './ready.js';
 import type { ScenarioSession } from './runtime.js';
 import { parseScenario, type Scenario } from './schema.js';
@@ -10,7 +10,8 @@ const OPEN_KEY = 'scenario-panel:open';
 // "Saved …" survives the reload Vite does when a new file lands in the scenarios glob.
 const FLASH_KEY = 'scenario-panel:flash';
 
-const SaveProbeSchema = z.object({ dir: z.string(), url: z.string().optional() });
+// The panel posts the captured scenario to `url`, so only a loopback save server is accepted.
+const SaveProbeSchema = z.object({ dir: z.string(), url: z.string().refine(isLoopbackSaveUrl).optional() });
 
 const SaveResultSchema = z.object({ path: z.string().optional(), error: z.string().optional() });
 
@@ -160,7 +161,10 @@ class ScenarioPanel extends Base {
 
     const href = (s: Scenario) => {
       try {
-        return { href: scenarioHref(catalog.resolve(s), { strict: session.strict }), invalid: false };
+        return {
+          href: scenarioHref(catalog.resolve(s), { strict: session.strict, record: session.recording }),
+          invalid: false,
+        };
       } catch {
         return { href: `?${PARAM}=${encodeURIComponent(s.name)}`, invalid: true };
       }

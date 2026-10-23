@@ -1,6 +1,10 @@
-import type { Locator, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
+import type { RequestHandler } from 'msw';
+import { z } from 'zod';
+import { createCatalog } from './catalog.js';
+import { installClock } from './clock.js';
 import { DATA_KEY, PARAM, STRICT_PARAM } from './link.js';
-import type { ScenarioInput } from './schema.js';
+import { JsonSchema, parseScenario, type ScenarioInput, ScenarioSchema } from './schema.js';
 
 export interface OpenOptions {
   /** App path to open. Default "/". */
@@ -19,7 +23,10 @@ export async function openScenario(page: Page, name: string, options: OpenOption
   await open(page, name, new URLSearchParams({ [PARAM]: name }), '', options);
 }
 
-/** Like `openScenario`, for a scenario defined in the test rather than the catalog. */
+/**
+ * Like `openScenario`, for a scenario defined in the test rather than the catalog.
+ * It opens as an inline link, so off localhost the app needs `startScenarios({ allowLinks: true })`.
+ */
 export async function openInlineScenario(page: Page, scenario: ScenarioInput, options: OpenOptions = {}) {
   const hash = `#${new URLSearchParams({ [DATA_KEY]: JSON.stringify(scenario) })}`;
   await open(page, scenario.name, new URLSearchParams(), hash, { path: scenario.path, ...options });
@@ -32,6 +39,11 @@ async function open(
   hash: string,
   { path = '/', strict = true, panel = true }: OpenOptions,
 ) {
+  // Relative to the test's baseURL; `//host`, `/\host` or a full URL would open another site.
+  if (!/^\/(?![/\\])/.test(path)) {
+    throw new Error(`[state-scenarios] path "${path}" must be a path on the app, such as /orders/42`);
+  }
+
   if (strict) search.set(STRICT_PARAM, '');
   await setPanel(page, panel);
   // Leave the page first: a hash-only change would not reload the app.
@@ -41,7 +53,15 @@ async function open(
   await html.waitFor({ state: 'attached' });
   const ready = await html.getAttribute('data-scenario-ready');
 
-  if (ready) await page.locator(ready).first().waitFor();
+  // A scenario with steps is open once they finish. The runtime waits for `ready` before the
+  // first step, and the steps may take that element away, so it isn't waited on here.
+  if (await html.getAttribute('data-scenario-steps')) {
+    await page.locator('html:not([data-scenario-steps="running"])').waitFor({ state: 'attached' });
+
+    if (await html.getAttribute('data-scenario-steps') === 'failed') {
+      throw new Error(`[state-scenarios] the steps of "${name}" failed; the browser console says which one`);
+    }
+  } else if (ready) await page.locator(ready).first().waitFor();
 }
 
 declare global {
@@ -87,6 +107,155 @@ async function setPanel(page: Page, show: boolean) {
       if (!hidden) style.remove();
     });
   });
+}
+
+export interface RouteScenarioOptions {
+  /** Requests to answer, e.g. `'http://api.invalid/**'`: the API the app was started against. */
+  url: string | RegExp;
+  /**
+   * A scenario, or its name in `scenarios`, whose `network` and named `handlers` answer before
+   * `handlers`. Its `now`, `state.cookies`, `state.localStorage` and `state.sessionStorage`
+   * are set on the app before its scripts run. `steps` need the runtime in the page.
+   */
+  scenario?: string | ScenarioInput;
+  /** The catalog `scenario` is named in or extends. */
+  scenarios?: ScenarioInput[];
+  /** Your own MSW handlers, the base layer under the scenario, e.g. the app's Vitest mocks. */
+  handlers?: RequestHandler[];
+  /**
+   * Handlers a scenario can name in `"handlers"`, e.g. `namedHandlers(await import('./mocks'))`.
+   * They answer after the scenario's `network`, before `handlers`.
+   */
+  named?: Record<string, RequestHandler | RequestHandler[]>;
+}
+
+/**
+ * Mock an API from Playwright, for an app that runs no state-scenarios code: requests to `url` are
+ * answered by `use()` overrides, then the scenario's `network`, then `handlers`. A request none
+ * of them answers gets a 501 and is listed in `unhandled`. Call before the page loads.
+ */
+export async function routeScenario(
+  target: Page | BrowserContext,
+  { url, scenario, scenarios = [], handlers = [], named: byName = {} }: RouteScenarioOptions,
+) {
+  // Loaded here: msw is optional, and the rest of this entry doesn't need it.
+  const [{ getResponse }, { toHandlers }] = await Promise.all([import('msw'), import('./network.js')]);
+  const catalog = createCatalog(scenarios);
+  const named = z.string().safeParse(scenario);
+  const inline = ScenarioSchema.safeParse(scenario);
+
+  const picked = named.success
+    ? catalog.get(named.data)
+    : inline.success
+    ? parseScenario(inline.data)
+    : undefined;
+
+  if (scenario !== undefined && !picked) {
+    const known = catalog.list.map((s) => s.name).join(', ');
+
+    throw new Error(
+      `[state-scenarios] unknown or invalid scenario ${JSON.stringify(scenario)}. Known: ${known}`,
+    );
+  }
+
+  const resolved = picked && catalog.resolve(picked);
+
+  const fixtures = [
+    ...toHandlers(resolved?.network),
+    ...(resolved?.handlers ?? []).flatMap((name) => {
+      const found = byName[name];
+
+      if (!found) {
+        throw new Error(
+          `[state-scenarios] scenario "${resolved?.name}" uses unknown handler "${name}". Known: ${
+            Object.keys(byName).join(', ') || 'none'
+          }`,
+        );
+      }
+
+      return [found].flat();
+    }),
+  ];
+
+  const overrides: RequestHandler[] = [];
+  const unhandled: string[] = [];
+  const cookies = z.record(z.string(), z.string()).safeParse(resolved?.state?.cookies);
+
+  // Like the cookies adapter: set on the app's origin before its scripts run, so auth gates let it in.
+  if (cookies.success) {
+    await target.addInitScript((pairs) => {
+      if (top !== self) return;
+
+      for (const [name, value] of pairs) {
+        document.cookie = `${encodeURIComponent(name)}=${encodeURIComponent(value)}; path=/`;
+      }
+    }, Object.entries(cookies.data));
+  }
+
+  // Like the storage adapters: strings as written, anything else as JSON.
+  for (const area of ['localStorage', 'sessionStorage'] as const) {
+    const items = z.record(z.string(), JsonSchema).safeParse(resolved?.state?.[area]);
+
+    if (!items.success) continue;
+
+    const pairs = Object.entries(items.data).map((
+      [k, v],
+    ) => [k, z.string().safeParse(v).data ?? JSON.stringify(v)]);
+
+    await target.addInitScript(({ area, pairs }) => {
+      if (top !== self) return;
+
+      for (const [k, v] of pairs) globalThis[area].setItem(k, v);
+    }, { area, pairs });
+  }
+
+  if (resolved?.now) await target.addInitScript(installClock, resolved.now);
+
+  await target.route(url, async (route) => {
+    const req = route.request();
+    const buffer = ['GET', 'HEAD'].includes(req.method()) ? null : req.postDataBuffer();
+    const body = buffer ? new Uint8Array(buffer) : undefined;
+    // allHeaders(), not headers(): only it includes the cookies a session-based handler reads.
+    // HTTP/2 pseudo-headers (`:authority`) aren't valid in a Request.
+    const headers = Object.entries(await req.allHeaders()).filter(([name]) => !name.startsWith(':'));
+    const request = new Request(req.url(), { method: req.method(), headers, body });
+    const response = await getResponse([...overrides, ...fixtures, ...handlers], request);
+    // The app's origin differs from the API's, so the browser needs CORS on every answer. Echoing
+    // the origin, rather than `*`, lets `credentials: 'include'` requests through; a handler's
+    // own CORS headers win.
+    const origin = req.headers().origin;
+
+    const cors: Record<string, string> = origin
+      ? { 'access-control-allow-origin': origin, 'access-control-allow-credentials': 'true', vary: 'Origin' }
+      : { 'access-control-allow-origin': '*' };
+
+    // MSW's control answers: HttpResponse.error() is a network failure, passthrough() the real API.
+    if (response?.type === 'error') return route.abort('failed');
+
+    if (response?.headers.get('x-msw-intention') === 'passthrough') return route.continue();
+
+    if (!response) {
+      unhandled.push(`${req.method()} ${new URL(req.url()).pathname}`);
+
+      return route.fulfill({
+        status: 501,
+        headers: cors,
+        json: { message: `No mock for ${req.method()} ${req.url()}` },
+      });
+    }
+
+    await route.fulfill({
+      status: response.status,
+      headers: { ...cors, ...Object.fromEntries(response.headers) },
+      body: Buffer.from(await response.arrayBuffer()),
+    });
+  });
+
+  return {
+    /** Put handlers first for this test only, like `server.use()` in Vitest. */
+    use: (...h: RequestHandler[]) => void overrides.unshift(...h),
+    unhandled,
+  };
 }
 
 /** Requests the active scenario didn't cover, e.g. to assert none in strict runs. */

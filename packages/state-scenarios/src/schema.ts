@@ -50,6 +50,21 @@ const NetworkEntrySchema = z
     message: 'Provide exactly one of "response", "sequence" or "remove"',
   });
 
+/**
+ * One step a scenario takes after its `ready` selector shows, for UI state no API response
+ * produces: an open modal, a filled form. Selectors: `text=`, `role=` (with `[name="…"]`) or CSS.
+ */
+const StepSchema = z.union([
+  z.strictObject({ click: z.string().min(1) }),
+  z.strictObject({ fill: z.string().min(1), value: z.string() }),
+  z.strictObject({ check: z.string().min(1) }),
+  z.strictObject({ select: z.string().min(1), value: z.string() }),
+  /** A key such as "Escape" or "Enter", on `on` or else the focused element. */
+  z.strictObject({ press: z.string().min(1), on: z.string().min(1).optional() }),
+  /** Wait for a selector to show before the next step. */
+  z.strictObject({ wait: z.string().min(1) }),
+]);
+
 export const ScenarioSchema = z.object({
   $schema: z.string().optional(),
   // Kebab-case; a combined scenario is named by its parts, e.g. "signed-in,server-error".
@@ -81,6 +96,16 @@ export const ScenarioSchema = z.object({
    * e.g. "text=Loading countries…". Not inherited: each state looks different.
    */
   ready: z.string().optional(),
+  /**
+   * Steps taken once `ready` shows, for UI state no response produces, such as an open dialog.
+   * Not inherited, and never run from an inline link, which anyone can write.
+   */
+  steps: z.array(StepSchema).min(1).optional(),
+  /**
+   * The time the app sees when it starts, e.g. "2026-03-31T09:00:00Z", for due dates and
+   * expiry; the clock runs on from there. Set before the app renders. Inherited.
+   */
+  now: z.iso.datetime({ offset: true }).optional(),
   /** Browser size `shoot` and `record` use for this scenario, e.g. a phone layout. Inherited. */
   viewport: z.object({ width: z.number().int().positive(), height: z.number().int().positive() }).optional(),
 });
@@ -92,6 +117,8 @@ export type ScenarioInput = z.input<typeof ScenarioSchema>;
 export type NetworkEntry = z.output<typeof NetworkEntrySchema>;
 
 export type ScenarioResponse = z.output<typeof ResponseSchema>;
+
+export type ScenarioStep = z.output<typeof StepSchema>;
 
 /**
  * JSON Schema for editors, validators and AI generators.

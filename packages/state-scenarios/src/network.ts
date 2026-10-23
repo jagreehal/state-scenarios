@@ -1,4 +1,4 @@
-import { delay, http, HttpResponse } from 'msw';
+import { delay, http, HttpResponse, type RequestHandler } from 'msw';
 import type { NetworkEntry } from './schema.js';
 
 const verbs = {
@@ -11,6 +11,17 @@ const verbs = {
   OPTIONS: http.options,
 } satisfies Record<NetworkEntry['method'], typeof http.get>;
 
+/**
+ * Whether a request is for code or a stylesheet, which fixtures must never answer. The worker
+ * can't see a request's destination, so code is recognised by its path.
+ */
+export const isCode = (href: string) => {
+  const { pathname } = new URL(href);
+
+  return /\.(m?[jt]sx?|css|s[ac]ss|less|html?|wasm)$/i.test(pathname)
+    || pathname.startsWith('/@') || pathname.includes('/node_modules/');
+};
+
 /** Turn scenario network entries into MSW handlers. First match wins. */
 export function toHandlers(entries: NetworkEntry[] = []) {
   return entries.map((entry) => {
@@ -18,6 +29,10 @@ export function toHandlers(entries: NetworkEntry[] = []) {
     let calls = 0;
 
     return verbs[entry.method](entry.path, async ({ request }): Promise<Response | undefined> => {
+      // Fixtures answer the app's requests, never a page load or code: a scenario from a shared
+      // link could otherwise serve its own HTML or scripts (a lazy chunk) on the app's origin.
+      if (request.mode === 'navigate' || isCode(request.url)) return undefined;
+
       if (entry.query) {
         const params = new URL(request.url).searchParams;
         const matches = Object.entries(entry.query).every(([k, v]) => params.get(k) === v);
@@ -28,7 +43,12 @@ export function toHandlers(entries: NetworkEntry[] = []) {
       const r = responses[Math.min(calls++, responses.length - 1)];
 
       if (r.delay !== undefined) await delay(r.delay);
-      const init = { status: r.status, headers: r.headers };
+      // nosniff stops a browser running a fixture as a script, whatever URL loaded it.
+      const headers = new Headers(r.headers);
+      headers.set('x-content-type-options', 'nosniff');
+
+      if (/script|wasm/i.test(headers.get('content-type') ?? '')) return undefined;
+      const init = { status: r.status, headers };
 
       if (r.text !== undefined) return HttpResponse.text(r.text, init);
 
@@ -37,4 +57,31 @@ export function toHandlers(entries: NetworkEntry[] = []) {
       return HttpResponse.json(r.body, init);
     });
   });
+}
+
+/** MSW handlers by the name a scenario's `"handlers"` uses. */
+export type NamedHandlers = Record<string, RequestHandler[]>;
+
+// Duck-typed: the app's handlers may come from another copy of msw than this package's.
+const isHandler = (value: unknown): value is RequestHandler =>
+  value instanceof Object && 'run' in value && 'info' in value;
+
+/**
+ * Every export of these modules that is an MSW handler or a list of them, by export name, for
+ * `startScenarios({ handlers })`: `import * as mocks from './mocks/handlers'` makes each
+ * `export const ordersEmpty = http.get(…)` usable as `"handlers": ["ordersEmpty"]`.
+ * On a name both modules export, the first module wins.
+ */
+export function namedHandlers(...modules: object[]): NamedHandlers {
+  const named = new Map<string, RequestHandler[]>();
+
+  for (const module of modules) {
+    for (const [name, value] of Object.entries(module)) {
+      const list = [value].flat();
+
+      if (!named.has(name) && list.length && list.every(isHandler)) named.set(name, list);
+    }
+  }
+
+  return Object.fromEntries(named);
 }

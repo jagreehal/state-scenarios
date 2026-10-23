@@ -100,6 +100,23 @@ describe('diffScenario', () => {
     expect(diffScenario(captured, flatBase).network?.map((e) => e.response?.body)).toEqual(['served']);
   });
 
+  it('inherits state slices the capture has no adapter for', () => {
+    const base = catalog.resolve(catalog.get('base')!);
+    const captured = { ...base, name: 'cap', state: {} };
+    expect(diffScenario(captured, base).state).toBeUndefined();
+  });
+
+  it('keeps steps and the clock, with or without a base', () => {
+    const base = catalog.resolve(catalog.get('base')!);
+    const steps = [{ click: 'text="Add"' }];
+    const captured = { ...base, name: 'cap', steps, now: '2031-03-31T09:00:00Z' };
+
+    expect(diffScenario(captured)).toMatchObject({ steps, now: '2031-03-31T09:00:00Z' });
+    expect(diffScenario(captured, base)).toMatchObject({ steps, now: '2031-03-31T09:00:00Z' });
+    // An inherited clock isn't repeated.
+    expect(diffScenario({ ...captured, now: undefined }, base).now).toBeUndefined();
+  });
+
   it('returns a full snapshot with no base', () => {
     const leaf = catalog.get('leaf');
 
