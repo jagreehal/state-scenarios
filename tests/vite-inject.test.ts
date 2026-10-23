@@ -1,10 +1,17 @@
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import { build, createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { stateScenarios } from '../packages/state-scenarios/src/vite.ts';
+
+/** The part of a service worker fetch event the worker's first listener reads. */
+interface WorkerFetch {
+  request: { url: string; destination: string; };
+  stopImmediatePropagation: () => void;
+}
 
 // An app with no state-scenarios code and no msw of its own; the plugin brings both.
 describe('state-scenarios/vite inject', () => {
@@ -124,6 +131,37 @@ describe('state-scenarios/vite inject', () => {
 
     expect(res.headers.get('content-type')).toBe('text/javascript');
     expect(await res.text()).toContain('Mock Service Worker');
+  });
+
+  it('lets code, styles, fonts and frames past MSW in the worker, and API calls through to it', async () => {
+    const script = await (await fetch(new URL('/mockServiceWorker.js', server.resolvedUrls!.local[0])))
+      .text();
+
+    // Run the lines ahead of MSW's own with a stand-in `self`, then send it fetch events.
+    const prefix = script.slice(0, script.indexOf('/* eslint-disable */'));
+    const listeners: ((event: WorkerFetch) => void)[] = [];
+    runInNewContext(prefix, {
+      URL,
+      self: {
+        addEventListener: (_type: string, listener: (event: WorkerFetch) => void) => listeners.push(listener),
+      },
+    });
+
+    const passes = (url: string, destination = '') => {
+      let stopped = false;
+
+      for (const listener of listeners) {
+        listener({ request: { url, destination }, stopImmediatePropagation: () => (stopped = true) });
+      }
+
+      return stopped;
+    };
+
+    expect(passes('http://localhost/src/main.tsx')).toBe(true);
+    expect(passes('https://fonts.example/css2?family=Inter', 'style')).toBe(true);
+    expect(passes('https://chat.example/', 'iframe')).toBe(true);
+    expect(passes('http://api.invalid/orders')).toBe(false);
+    expect(passes('http://localhost/logo.png', 'image')).toBe(false);
   });
 });
 

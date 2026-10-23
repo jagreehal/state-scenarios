@@ -242,7 +242,7 @@ export default mergeConfig(app, {
 });
 ```
 
-Run the app's own Vite with it: `npx vite --config ../../e2e/vite.config.ts` from the app's folder. A unit-test suite's handler variants (`ordersEmpty`, `signInNeedsCode`, `checkoutError`) become states you can link to without copying a fixture. `inject` also takes `strict`, `allow`, `allowLinks` and `panel: false`. It only runs under `vite dev` unless you pass `build: true`, which ships the mocks, scenarios and panel in `vite build` for demo recordings and preview deploys: build into a folder of its own and never deploy it as the real app. The worker sees the app's own requests too, so code and stylesheets always pass through, even when a handler such as `*/orders/:id` matches a lazy chunk's path.
+Run the app's own Vite with it: `npx vite --config ../../e2e/vite.config.ts` from the app's folder. A unit-test suite's handler variants (`ordersEmpty`, `signInNeedsCode`, `checkoutError`) become states you can link to without copying a fixture. `inject` also takes `strict`, `allow`, `allowLinks` and `panel: false`. It only runs under `vite dev` unless you pass `build: true`, which ships the mocks, scenarios and panel in `vite build` for demo recordings and preview deploys: build into a folder of its own and never deploy it as the real app. Code, stylesheets, fonts and frames skip MSW in the worker and go straight to the network, so a handler such as `*/orders/:id` never answers a lazy chunk, and a cookie on `localhost` that MSW can't read never blanks the page.
 
 **Playwright alone.** `routeScenario` answers the API from the test, as `page.route` does, so nothing runs in the page:
 

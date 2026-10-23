@@ -7,7 +7,7 @@ Open any state of an app you can't change, and reach states that need clicks or 
 
 **Apps you can't change**
 
-- `stateScenarios({ dir, inject })` from `state-scenarios/vite` starts scenarios, MSW and the panel before the app's entry runs. Add it from a Vite config that extends the app's. `handlers` takes modules or globs of the app's MSW handlers, and every handler they export can be named in a scenario's `"handlers"`. `inject` also takes `defaultScenario`, `strict`, `allowLinks`, `ignore`, `allow`, `panel: false` and `build: true`. It connects the cookies and storage adapters, keeps `DOMContentLoaded` and `load` for the app's entry, and lets code and stylesheet requests through.
+- `stateScenarios({ dir, inject })` from `state-scenarios/vite` starts scenarios, MSW and the panel before the app's entry runs. Add it from a Vite config that extends the app's. `handlers` takes modules or globs of the app's MSW handlers, and every handler they export can be named in a scenario's `"handlers"`. `inject` also takes `defaultScenario`, `strict`, `allowLinks`, `ignore`, `allow`, `panel: false` and `build: true`. It connects the cookies and storage adapters, keeps `DOMContentLoaded` and `load` for the app's entry, and sends code, stylesheets, fonts and frames straight to the network.
 - `routeScenario(page, { url, scenario, scenarios, handlers, named })` from `state-scenarios/playwright` answers an API from the test. `use()` overrides come first, then the scenario's `network`, named handlers and your handlers. It lists requests nothing answered in `unhandled`, and supports `HttpResponse.error()` and `passthrough()`. It sets the scenario's `now`, cookies, `localStorage` and `sessionStorage` before the app's scripts run.
 
 **New scenario fields and adapters**

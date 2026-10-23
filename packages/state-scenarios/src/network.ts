@@ -1,4 +1,5 @@
 import { delay, http, HttpResponse, type RequestHandler } from 'msw';
+import { isCode } from './code.js';
 import type { NetworkEntry } from './schema.js';
 
 const verbs = {
@@ -11,16 +12,7 @@ const verbs = {
   OPTIONS: http.options,
 } satisfies Record<NetworkEntry['method'], typeof http.get>;
 
-/**
- * Whether a request is for code or a stylesheet, which fixtures must never answer. The worker
- * can't see a request's destination, so code is recognised by its path.
- */
-export const isCode = (href: string) => {
-  const { pathname } = new URL(href);
-
-  return /\.(m?[jt]sx?|css|s[ac]ss|less|html?|wasm)$/i.test(pathname)
-    || pathname.startsWith('/@') || pathname.includes('/node_modules/');
-};
+export { isCode };
 
 /** Turn scenario network entries into MSW handlers. First match wins. */
 export function toHandlers(entries: NetworkEntry[] = []) {

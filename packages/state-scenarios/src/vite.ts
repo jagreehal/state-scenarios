@@ -3,6 +3,7 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Plugin, searchForWorkspaceRoot } from 'vite';
+import { isCode } from './code.js';
 import { SAVE_ENDPOINT } from './link.js';
 import { createSaveHandler } from './save.js';
 
@@ -76,8 +77,18 @@ export function stateScenarios(
   // The app's msw, so the worker script matches the library that registers it and its handlers.
   let appMsw: string | undefined;
 
+  // Code, stylesheets, fonts and frames go straight to the network, ahead of MSW's own listener:
+  // no handler answers them, and a cookie MSW can't read can't fail them and blank the page.
   const workerScript = () =>
-    readFileSync(join(appMsw ?? dirname(createRequire(self).resolve('msw/package.json')), 'lib', WORKER));
+    `const isCode = ${isCode.toString()};\n`
+    + `const PASS = new Set(['script', 'style', 'font', 'document', 'iframe', 'frame', 'worker', 'sharedworker', 'manifest']);\n`
+    + `self.addEventListener('fetch', (event) => {\n`
+    + `  if (PASS.has(event.request.destination) || isCode(event.request.url)) event.stopImmediatePropagation();\n`
+    + `});\n`
+    + readFileSync(
+      join(appMsw ?? dirname(createRequire(self).resolve('msw/package.json')), 'lib', WORKER),
+      'utf8',
+    );
 
   return {
     name: 'state-scenarios',
