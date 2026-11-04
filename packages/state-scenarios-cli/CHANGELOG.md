@@ -1,5 +1,11 @@
 # state-scenarios-cli
 
+## 0.9.1
+
+### Patch Changes
+
+- 4972a8a: `record` and `doctor` look for ffmpeg in `FFMPEG_PATH`, then `@ffmpeg-installer/ffmpeg` in your project, then `PATH`. Run `npm i -D @ffmpeg-installer/ffmpeg` to set it up on macOS, Windows or Linux.
+
 ## 0.9.0
 
 ### Minor Changes
