@@ -55,7 +55,7 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
   12); both cut file size.
 - Video records at viewport size, so use a larger `--viewport` for sharper video; `--scale`
   affects screenshots only.
-- MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg on `PATH`, or `FFMPEG_PATH`. WebM without them doesn't.
+- MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg: `npm i -D @ffmpeg-installer/ffmpeg` in the project (macOS, Windows, Linux), `FFMPEG_PATH`, or `PATH`. WebM without them doesn't.
 - Each video gets a `<name>.video.json` manifest: size, length, description and clicks; a field
   taking focus is a point with `kind: 'focus'`, so editors can hold on it while it's typed into. See
   [Videos in Remotion](#videos-in-remotion).
