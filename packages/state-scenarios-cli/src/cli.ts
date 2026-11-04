@@ -57,7 +57,7 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
              --width <px> to downscale, --hold <ms> on the last frame (default 800).
              --cursor-color <css> (default #ff2d55) or --cursor <file.svg> to draw your own pointer.
              Writes <name>.video.json next to each video: size, length, description and clicks.
-             mp4, gif, --element, --fps and --width need ffmpeg on PATH (or FFMPEG_PATH)
+             mp4, gif, --element, --fps and --width need ffmpeg: @ffmpeg-installer/ffmpeg in the project, FFMPEG_PATH, or PATH
   suggest    Ask Claude which UI states lack scenarios and draft them into --out (default <dir>/proposed).
              --src dir[,dir] (required), --schema file, --max n, --model (default $STATE_SCENARIOS_MODEL or claude-opus-5-5).
              Needs ANTHROPIC_API_KEY or \`ant auth login\`; ANTHROPIC_BASE_URL points it at a compatible proxy.

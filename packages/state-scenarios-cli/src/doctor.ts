@@ -5,6 +5,7 @@ import type { Catalog } from 'state-scenarios';
 import { type BrowserFlags, checkServer, contextOptions, launchChromium, scenarioLink } from './browser.js';
 import { CliError, type ErrorCode } from './errors.js';
 import { inspectScenario } from './inspect.js';
+import { ffmpegPath } from './record.js';
 
 export interface Check {
   name: string;
@@ -231,7 +232,7 @@ const SESSION_FIX =
 
 /** Checks that need no browser: ffmpeg for record, and whether agents can find the skills and MCP server. */
 function setupChecks(cwd: string): Check[] {
-  const ffmpeg = spawnSync(process.env.FFMPEG_PATH || 'ffmpeg', ['-version']);
+  const ffmpeg = spawnSync(ffmpegPath(process.env, cwd), ['-version']);
 
   const mcp = ['.mcp.json', '.cursor/mcp.json'].some((f) => {
     const path = join(cwd, f);
@@ -246,7 +247,7 @@ function setupChecks(cwd: string): Check[] {
         status: 'warn',
         code: 'FFMPEG_MISSING',
         detail: 'Not found: record can only save uncropped WebM',
-        fix: 'Install from https://ffmpeg.org/download.html or set FFMPEG_PATH',
+        fix: 'Run `npm i -D @ffmpeg-installer/ffmpeg` in this project, or set FFMPEG_PATH',
       }
       : { name: 'ffmpeg', status: 'ok', detail: 'Found, for record' },
     existsSync(join(cwd, '.agents/skills/state-scenarios'))

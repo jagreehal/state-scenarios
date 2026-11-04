@@ -1,3 +1,6 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { CliError } from '../packages/state-scenarios-cli/src/errors.ts';
@@ -9,6 +12,7 @@ import {
 import { createMcpHandler, tool } from '../packages/state-scenarios-cli/src/mcp-protocol.ts';
 import {
   ffmpegArgs,
+  ffmpegPath,
   outputSize,
   videoManifest,
   visibleCrop,
@@ -57,6 +61,25 @@ describe('scenario handlers and viewport', () => {
 
     expect(diff.handlers).toEqual(['statementsEmpty']);
     expect(diff.viewport).toBeUndefined();
+  });
+});
+
+describe('ffmpegPath', () => {
+  it("prefers FFMPEG_PATH, then the project's installer package, then PATH", () => {
+    const project = mkdtempSync(join(tmpdir(), 'ffmpeg-path-'));
+
+    try {
+      expect(ffmpegPath({}, project)).toBe('ffmpeg');
+
+      const pkg = join(project, 'node_modules/@ffmpeg-installer/ffmpeg');
+      mkdirSync(pkg, { recursive: true });
+      writeFileSync(join(pkg, 'index.js'), "module.exports = { path: '/installed/ffmpeg' };");
+
+      expect(ffmpegPath({}, project)).toBe('/installed/ffmpeg');
+      expect(ffmpegPath({ FFMPEG_PATH: '/custom/ffmpeg' }, project)).toBe('/custom/ffmpeg');
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   });
 });
 
