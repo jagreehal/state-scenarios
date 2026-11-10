@@ -1,6 +1,6 @@
-import type { Frame } from '@playwright/test';
+import type { Frame, Page } from '@playwright/test';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { z } from 'zod';
@@ -101,31 +101,42 @@ export function visibleCrop(box: Crop, viewport: { width: number; height: number
 
 const even = (n: number) => Math.max(2, Math.floor(n / 2) * 2);
 
+/** The size a viewport's video is saved at: even, as yuv420p needs. ffmpeg scales Chrome's recording to it. */
+export const videoSize = (viewport: { width: number; height: number; }) => ({
+  width: even(viewport.width),
+  height: even(viewport.height),
+});
+
 /**
- * ffmpeg arguments that trim the page load off the start, crop to an element, and encode.
+ * ffmpeg arguments that crop to an element and encode.
  * MP4 is H.264 in yuv420p so it plays everywhere, including Safari and phones; GIF uses a
  * generated palette, which keeps it sharp at a fraction of the naive size.
  */
 export function ffmpegArgs(
-  { input, output, format, start, crop, fps, width }: {
+  { input, output, format, size, duration, crop, fps, width }: {
     input: string;
     output: string;
     format: VideoFormat;
-    /** Seconds to skip, e.g. the page loading before the steps begin. */
-    start: number;
+    /** From `videoSize`. Chrome shrinks odd viewports keeping their aspect ratio (1279x719 records at 1276x718), so the recording is scaled back to this before cropping. */
+    size: { width: number; height: number; };
+    /** Seconds recorded. Chrome only writes a frame when the page changes, so the last one is held to here. */
+    duration: number;
     crop?: Crop;
-    /** Frames per second; GIFs default to 12. */
+    /** Frames per second; GIFs default to 12, video to 60. */
     fps?: number;
     /** Maximum output width in pixels, never upscaled; height follows the aspect ratio. */
     width?: number;
   },
 ): string[] {
-  const rate = fps ?? (format === 'gif' ? 12 : undefined);
+  const rate = fps ?? (format === 'gif' ? 12 : 60);
 
   // yuv420p needs even sizes.
   const filters = [
+    `scale=${size.width}:${size.height}`,
     crop && `crop=${even(crop.width)}:${even(crop.height)}:${Math.round(crop.x)}:${Math.round(crop.y)}`,
-    rate && `fps=${rate}`,
+    // A constant rate, then the last frame held, so `-t` cuts the video at the recorded length.
+    `fps=${rate}`,
+    `tpad=stop_mode=clone:stop_duration=${duration.toFixed(3)}`,
     // Quoted so the comma in min() isn't read as a filter separator.
     width && `scale='trunc(min(${width},iw)/2)*2':-2:flags=lanczos`,
   ].filter(Boolean);
@@ -146,9 +157,10 @@ export function ffmpegArgs(
     'error',
     '-i',
     input,
-    '-ss',
-    start.toFixed(2),
-    ...(vf ? ['-vf', vf] : []),
+    '-vf',
+    vf,
+    '-t',
+    duration.toFixed(3),
     '-an',
     ...codec,
     output,
@@ -172,30 +184,49 @@ export function ffmpegPath(env = process.env, cwd = process.cwd()) {
 }
 
 /**
- * Convert Playwright's WebM into the requested format. WebM without a crop, --fps or --width is
- * copied as recorded (page load included), so it works without ffmpeg.
+ * Records the page from now on with Chrome's own encoder (CDP `Page.startScreenRecording`,
+ * Chromium 153+): AV1 at up to 60fps, sized to the viewport so crops in CSS pixels line up.
+ * The returned function stops and writes the MP4 to `file`.
  */
+export async function startRecording(page: Page, viewport: { width: number; height: number; }) {
+  const session = await page.context().newCDPSession(page);
+
+  await session.send('Page.startScreenRecording', {
+    frameRate: 60,
+    maxWidth: viewport.width,
+    maxHeight: viewport.height,
+  });
+
+  return async (file: string) => {
+    const { stream: handle } = await session.send('Page.stopScreenRecording');
+    const chunks: Buffer[] = [];
+
+    try {
+      for (let eof = false; !eof;) {
+        const chunk = await session.send('IO.read', { handle });
+        chunks.push(Buffer.from(chunk.data, chunk.base64Encoded ? 'base64' : 'utf8'));
+        eof = chunk.eof;
+      }
+    } finally {
+      await session.send('IO.close', { handle }).catch(() => {});
+    }
+
+    writeFileSync(file, Buffer.concat(chunks));
+  };
+}
+
+/** Convert Chrome's AV1 recording into the requested format. */
 export function encodeVideo(options: Parameters<typeof ffmpegArgs>[0]) {
-  if (options.format === 'webm' && !options.crop && !options.fps && !options.width) {
-    copyFileSync(options.input, options.output);
-
-    return { start: 0 };
-  }
-
   const result = spawnSync(ffmpegPath(), ffmpegArgs(options), { encoding: 'utf8' });
 
   if (result.error) {
     throw new CliError(
       'FFMPEG_MISSING',
-      `record needs ffmpeg for ${options.format}${
-        options.format === 'webm' ? ' with --element, --fps or --width' : ''
-      }: run \`npm i -D @ffmpeg-installer/ffmpeg\` in this project, or set FFMPEG_PATH`,
+      'record needs ffmpeg: run `npm i -D @ffmpeg-installer/ffmpeg` in this project, or set FFMPEG_PATH',
     );
   }
 
   if (result.status !== 0) throw new Error(`ffmpeg failed: ${result.stderr.trim()}`);
-
-  return { start: options.start };
 }
 
 /** The video size ffmpeg writes: the crop or viewport, capped at `width` as the scale filter does. */

@@ -86,7 +86,7 @@ test('record the real flow, then replay it offline', async ({ page, browser }) =
   await signedIn(page);
 
   await page.getByRole('button', { name: /^Scenario:.*recording 2/ }).click();
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByLabel('Scenario name').fill('recorded-sign-in');
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download JSON' }).click();

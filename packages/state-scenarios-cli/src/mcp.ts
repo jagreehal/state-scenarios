@@ -2,7 +2,7 @@ import type { Browser, Page } from '@playwright/test';
 import { existsSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { type Catalog, parseScenario, type ScenarioInput } from 'state-scenarios';
-import { unhandledRequests } from 'state-scenarios/playwright';
+import { requestMismatches, suspiciousRequests, unhandledRequests } from 'state-scenarios/playwright';
 import { z } from 'zod';
 import { type BrowserFlags, checkServer, contextOptions, launchChromium, scenarioLink } from './browser.js';
 import { CliError } from './errors.js';
@@ -57,6 +57,8 @@ export function mcpTools({ dir, baseURL, loadCatalog, flags }: McpOptions) {
     url: p.url(),
     scenario: await p.evaluate(() => globalThis.stateScenariosPage?.scenario() ?? null).catch(() => null),
     unhandled: await unhandledRequests(p).catch(() => []),
+    mismatches: await requestMismatches(p).catch(() => []),
+    suspicious: await suspiciousRequests(p).catch(() => []),
     pageErrors: errors.pageErrors,
     consoleErrors: errors.consoleErrors,
   });

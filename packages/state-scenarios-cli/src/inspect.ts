@@ -1,6 +1,11 @@
 import type { Page } from '@playwright/test';
 import type { ReadyReport, Scenario } from 'state-scenarios';
-import { openScenario, unhandledRequests } from 'state-scenarios/playwright';
+import {
+  openScenario,
+  requestMismatches,
+  suspiciousRequests,
+  unhandledRequests,
+} from 'state-scenarios/playwright';
 import type { ErrorCode } from './errors.js';
 
 export interface Inspection {
@@ -11,6 +16,10 @@ export interface Inspection {
   /** Reopens this state in strict mode. */
   link: string;
   unhandled: string[];
+  /** Requests that differed from an entry's `expect`, and `expect` entries never called. */
+  mismatches: string[];
+  /** Requests whose URL looks built from a missing value. */
+  suspicious: string[];
   pageErrors: string[];
   consoleErrors: string[];
   error: string | null;
@@ -118,11 +127,30 @@ export async function inspectScenario(
 
   if (unhandled.length) codes.push('UNMOCKED_REQUEST');
 
+  const mismatches = await requestMismatches(page).catch(() => []);
+
+  if (mismatches.length) codes.push('REQUEST_MISMATCH');
+
+  const suspicious = await suspiciousRequests(page).catch(() => []);
+
+  if (suspicious.length) codes.push('SUSPICIOUS_URL');
+
   if (errors.pageErrors.length) codes.push('PAGE_ERROR');
 
   if (errors.consoleErrors.length) codes.push('CONSOLE_ERROR');
 
-  return { name: scenario.name, ok: !codes.length, codes, link, unhandled, ...errors, error, ready };
+  return {
+    name: scenario.name,
+    ok: !codes.length,
+    codes,
+    link,
+    unhandled,
+    mismatches,
+    suspicious,
+    ...errors,
+    error,
+    ready,
+  };
 }
 
 interface DraftEntry {
@@ -227,6 +255,30 @@ export function failurePage(
       '```json',
       JSON.stringify(r.unhandled.map((u) => networkEntryFor(u, appOrigin)), null, 2),
       '```',
+    );
+  }
+
+  if (r.mismatches.length) {
+    out.push(
+      '',
+      '## Requests that differ from `expect`',
+      '',
+      "The app sent these differently from what the scenario's `expect` says, or never sent them. Fix the",
+      "request the app builds; change `expect` only if the API's contract changed.",
+      '',
+      ...r.mismatches.map((m) => `- ${m}`),
+    );
+  }
+
+  if (r.suspicious.length) {
+    out.push(
+      '',
+      '## Suspicious request URLs',
+      '',
+      'These URLs look built from a missing value (an id not loaded yet, an object where a string belongs).',
+      'Usually a query that runs before its inputs exist: gate it on them, or encode the value.',
+      '',
+      ...r.suspicious.map((s) => `- ${s}`),
     );
   }
 

@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { createCatalog } from './catalog.js';
 import { installClock } from './clock.js';
 import { DATA_KEY, PARAM, STRICT_PARAM } from './link.js';
+import { type RequestCheck, requestProblems, suspiciousUrl } from './request-checks.js';
 import { JsonSchema, parseScenario, type ScenarioInput, ScenarioSchema } from './schema.js';
 
 export interface OpenOptions {
@@ -160,8 +161,11 @@ export async function routeScenario(
 
   const resolved = picked && catalog.resolve(picked);
 
+  const checks: RequestCheck[] = [];
+  const suspicious: string[] = [];
+
   const fixtures = [
-    ...toHandlers(resolved?.network),
+    ...toHandlers(resolved?.network, checks),
     ...(resolved?.handlers ?? []).flatMap((name) => {
       const found = byName[name];
 
@@ -215,6 +219,9 @@ export async function routeScenario(
 
   await target.route(url, async (route) => {
     const req = route.request();
+    const why = suspiciousUrl(req.url());
+
+    if (why) suspicious.push(`${req.method()} ${req.url()}: ${why}`);
     const buffer = ['GET', 'HEAD'].includes(req.method()) ? null : req.postDataBuffer();
     const body = buffer ? new Uint8Array(buffer) : undefined;
     // allHeaders(), not headers(): only it includes the cookies a session-based handler reads.
@@ -257,12 +264,27 @@ export async function routeScenario(
     /** Put handlers first for this test only, like `server.use()` in Vitest. */
     use: (...h: RequestHandler[]) => void overrides.unshift(...h),
     unhandled,
+    /** Requests whose URL looks built from a missing value, such as `/users//orders`. */
+    suspicious,
+    /** Requests that differed from an entry's `expect`, and `expect` entries never called. */
+    mismatches: () => requestProblems(checks),
   };
 }
 
 /** Requests the active scenario didn't cover, e.g. to assert none in strict runs. */
 export const unhandledRequests = (page: Page): Promise<string[]> =>
   page.evaluate(() => globalThis.stateScenariosUnhandled ?? []);
+
+/** Requests whose URL looks built from a missing value: `/users//orders`, `?id=undefined`. */
+export const suspiciousRequests = (page: Page): Promise<string[]> =>
+  page.evaluate(() => globalThis.stateScenariosSuspicious ?? []);
+
+/**
+ * Requests that differed from a network entry's `expect`, then `expect` entries the app never
+ * called. Check after the UI has done what should send them.
+ */
+export const requestMismatches = async (page: Page): Promise<string[]> =>
+  requestProblems(await page.evaluate(() => globalThis.stateScenariosChecks ?? []));
 
 /** Options for {@link showCursor}. */
 export interface CursorOptions {

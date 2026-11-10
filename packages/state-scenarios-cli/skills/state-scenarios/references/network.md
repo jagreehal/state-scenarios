@@ -29,6 +29,30 @@ await startScenarios({
 
 Patterns are URL substrings or regular expressions. Match the hosts the app actually calls.
 
+## Checking what the app sends
+
+`expect` on a network entry says what the app must send. The entry still answers, and a request
+that differs is reported as `REQUEST_MISMATCH`; so is an `expect` entry the app never calls.
+`query` values must match (`null`: absent). `body` checks only the keys it lists.
+
+```json
+{
+  "method": "POST",
+  "path": "/api/orders/export",
+  "expect": { "query": { "format": "csv" }, "body": { "filter": { "status": "open" } } },
+  "response": { "status": 202 }
+}
+```
+
+Use `query` to pick an entry and `expect` to check one. A URL with `//` or a segment or query value
+reading `undefined`, `null`, `NaN` or `[object Object]` is reported as `SUSPICIOUS_URL`. In
+Playwright, `requestMismatches(page)` and `suspiciousRequests(page)` list both after the steps run.
+
+## Long lists
+
+`{ "$repeat": 30, "item": { "id": "{{i}}", "name": "Row {{i}}" } }` anywhere in a response body
+becomes 30 items (up to 100,000). A string that is only `{{i}}` becomes the number.
+
 ## Apps that already use MSW
 
 Start your worker and pass it in. Scenario entries answer first, then your handlers, then the strict

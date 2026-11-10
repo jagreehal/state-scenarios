@@ -8,6 +8,8 @@ export const ERROR_CLASSES = {
   SCENARIO_NOT_IN_APP: 'failed',
   READY_TIMEOUT: 'failed',
   UNMOCKED_REQUEST: 'failed',
+  REQUEST_MISMATCH: 'failed',
+  SUSPICIOUS_URL: 'failed',
   PAGE_ERROR: 'failed',
   CONSOLE_ERROR: 'failed',
   ELEMENT_NOT_FOUND: 'failed',

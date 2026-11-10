@@ -12,10 +12,16 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, relative, resolve } from 'node:path';
+import { basename, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
-import { type Catalog, createCatalog, scenarioJsonSchema, type ScenarioRule } from 'state-scenarios';
+import {
+  type Catalog,
+  createCatalog,
+  type Json,
+  scenarioJsonSchema,
+  type ScenarioRule,
+} from 'state-scenarios';
 import { z } from 'zod';
 import { checkServer, contextOptions, launchChromium, scenarioLink } from './browser.js';
 import { CliError } from './errors.js';
@@ -57,12 +63,16 @@ const HELP = `Usage: state-scenarios <command> <scenarios-dir> [options]
              --width <px> to downscale, --hold <ms> on the last frame (default 800).
              --cursor-color <css> (default #ff2d55) or --cursor <file.svg> to draw your own pointer.
              Writes <name>.video.json next to each video: size, length, description and clicks.
-             mp4, gif, --element, --fps and --width need ffmpeg: @ffmpeg-installer/ffmpeg in the project, FFMPEG_PATH, or PATH
+             Records at 60fps with Chromium 153+ (@playwright/test 1.63+). Needs ffmpeg: @ffmpeg-installer/ffmpeg
+             in the project, FFMPEG_PATH, or PATH
   suggest    Ask Claude which UI states lack scenarios and draft them into --out (default <dir>/proposed).
              --src dir[,dir] (required), --schema file, --max n, --model (default $STATE_SCENARIOS_MODEL or claude-opus-5-5).
              Needs ANTHROPIC_API_KEY or \`ant auth login\`; ANTHROPIC_BASE_URL points it at a compatible proxy.
              --env-file file loads those variables first.
   promote    Move <dir>/proposed/*.json into <dir> after validate. --dry-run lists moves only.
+  from-har   from-har <dir> <file.har> --name <name>: turn the JSON responses in a HAR file (DevTools >
+             Network > Save all as HAR) into <dir>/<name>.json, redacted like recordings, replayable on any
+             host. --extends <scenario>, --path <route> to open at. Never replaces an existing file
 
 Common: --rules file   module exporting \`rules\` (ScenarioRule[])
         --json         machine-readable output (list, shoot, doctor, affected, coverage, publish)`;
@@ -106,6 +116,9 @@ const { positionals, values } = parseArgs({
     folder: { type: 'string' },
     branch: { type: 'string' },
     remote: { type: 'string' },
+    name: { type: 'string' },
+    extends: { type: 'string' },
+    path: { type: 'string' },
     help: { type: 'boolean', short: 'h' },
   },
 });
@@ -257,6 +270,49 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
     const { promoteScenarios } = await import('./promote.js');
     const result = promoteScenarios(dir, { rules, dryRun: !!values['dry-run'] });
     process.exit(result.skipped.length ? 1 : 0);
+  }
+
+  if (command === 'from-har') {
+    const [, , harFile] = positionals;
+    const { name } = values;
+
+    if (!dir || !harFile || !name) {
+      throw new CliError('INVALID_ARGUMENT', 'Usage: from-har <dir> <file.har> --name <scenario-name>');
+    }
+
+    const { fromHar, parseJson, parseScenario } = await import('state-scenarios');
+    const target = join(dir, `${name}.json`);
+
+    if (existsSync(target)) throw new CliError('INVALID_ARGUMENT', `${target} exists; pick another --name`);
+    let har: Json;
+
+    try {
+      har = parseJson(readFileSync(harFile, 'utf8'));
+    } catch (err) {
+      throw new CliError('INVALID_ARGUMENT', `${harFile} isn't a readable HAR file: ${String(err)}`);
+    }
+
+    const { network, redacted, skipped } = fromHar(har);
+
+    if (!network.length) throw new CliError('INVALID_ARGUMENT', `${harFile} has no JSON responses to import`);
+
+    const scenario = parseScenario({
+      name,
+      description: `Imported from ${basename(harFile)}`,
+      ...(values.extends && { extends: values.extends }),
+      ...(values.path && { path: values.path }),
+      network,
+    });
+
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(target, `${JSON.stringify(scenario, null, 2)}\n`);
+
+    for (const r of redacted) console.log(`  redacted ${r}`);
+
+    for (const r of skipped) console.log(`  skipped ${r}`);
+    console.log(`✓ ${target}: ${network.length} network entr${network.length === 1 ? 'y' : 'ies'}`);
+    console.log('  Names and emails are kept: check the file before committing it. Then set "ready".');
+    process.exit(0);
   }
 
   if (command === 'mcp') {
@@ -579,6 +635,10 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
 
           for (const u of r.unhandled) console.log(`    unmocked: ${u}`);
 
+          for (const m of r.mismatches) console.log(`    request: ${m}`);
+
+          for (const u of r.suspicious) console.log(`    suspicious: ${u}`);
+
           for (const e of r.pageErrors) console.log(`    uncaught: ${e}`);
 
           for (const e of r.consoleErrors) console.log(`    console.error: ${e}`);
@@ -633,9 +693,22 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
       await checkServer(baseURL);
       const { openScenario, showCursor } = await import('state-scenarios/playwright');
       const record = await import('./record.js');
-      const { encodeVideo, pagePoint, reportPoints, videoManifest, visibleCrop } = record;
+
+      const { encodeVideo, pagePoint, reportPoints, startRecording, videoManifest, videoSize, visibleCrop } =
+        record;
+
       // slowMo spaces out steps so viewers can follow them; glide lets the cursor arrive first.
       const browser = await launchChromium({ slowMo: 150 });
+
+      if (Number(browser.version().split('.')[0]) < 153) {
+        await browser.close();
+        throw new CliError(
+          'BROWSER_MISSING',
+          `record needs Chromium 153+ to record video, and Playwright's is ${browser.version()}. `
+            + 'Update it: npm i -D @playwright/test@latest && npx playwright install chromium',
+        );
+      }
+
       let exitCode = 0;
 
       /**
@@ -672,15 +745,8 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
         const resolved = catalog.resolve(catalog.get(name) ?? { name });
         const options = contextOptions(resolved, values);
 
-        // Playwright records video at CSS-pixel size whatever the scale, so use a larger --viewport for sharper video.
-        const context = await browser.newContext({
-          baseURL,
-          ...options,
-          recordVideo: { dir: raw, size: options.viewport },
-        });
-
+        const context = await browser.newContext({ baseURL, ...options });
         const page = await context.newPage();
-        const began = Date.now();
         const file = join(out, `${name}.${format}`);
 
         const clicks: Promise<
@@ -707,25 +773,27 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
           );
           await page.addInitScript(reportPoints);
           await openScenario(page, name, { path: resolved.path, strict: !values['no-strict'], panel: false });
-          const crop = element ? await cropTo(page, element, options.viewport) : undefined;
+          const size = videoSize(options.viewport);
+          const crop = element ? await cropTo(page, element, size) : undefined;
 
-          const start = (Date.now() - began) / 1000;
+          // Recording starts once the scenario is ready, so the page load isn't in the video.
+          const stop = await startRecording(page, size);
+          const start = Date.now();
           await Promise.resolve(run(page)).catch((err: Error) => {
             throw new CliError('STEPS_FAILED', `steps failed: ${err.message.split('\n')[0]}`);
           });
           await page.waitForTimeout(hold); // hold the final frame
           const end = Date.now();
+          const input = join(raw, `${name}.mp4`);
+          await stop(input);
           await context.close();
 
-          const video = page.video();
-
-          if (!video) throw new Error('Playwright recorded no video');
-
-          const trimmed = encodeVideo({
-            input: await video.path(),
+          encodeVideo({
+            input,
             output: file,
             format,
-            start,
+            size,
+            duration: (end - start) / 1000,
             crop,
             fps,
             width,
@@ -735,10 +803,10 @@ For agents that need a pointer, add to AGENTS.md (or CLAUDE.md):
             name,
             description: resolved.description,
             video: `${name}.${format}`,
-            viewport: options.viewport,
+            viewport: size,
             crop,
             width,
-            start: began + trimmed.start * 1000,
+            start,
             end,
             clicks: (await Promise.all(clicks)).filter((c) => c !== undefined),
           });

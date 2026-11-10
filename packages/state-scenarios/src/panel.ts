@@ -92,49 +92,51 @@ class ScenarioPanel extends Base {
     root.innerHTML = `
       <style>${STYLES}</style>
       <button class="toggle" aria-expanded="false" aria-controls="drawer"></button>
+      <div class="pick-box" hidden><span></span></div>
       <section id="drawer" aria-label="Scenarios" hidden>
         <header>
-          <h2>Scenarios</h2>
-          <button class="close" aria-label="Close scenarios panel">×</button>
+          <div role="tablist" aria-label="Panel">
+            <button role="tab" id="tab-switch" aria-controls="pane-switch" data-tab="switch">Scenarios</button>
+            <button role="tab" id="tab-edit" aria-controls="pane-edit" data-tab="edit">Edit</button>
+            <button role="tab" id="tab-save" aria-controls="pane-save" data-tab="save">Save</button>
+          </div>
+          <a class="icon reset" aria-label="Reset" title="Reset: run the app without a scenario">${ICON.reset}</a>
+          <button class="icon close" aria-label="Close scenarios panel" title="Close (Esc)">${ICON.close}</button>
         </header>
         <p class="error" role="alert"></p>
-        <input type="search" placeholder="Filter by name, description or tag" aria-label="Filter scenarios">
-        <ul class="list"></ul>
         <div class="unmocked" role="status"></div>
-        <section class="live" aria-label="Live state"></section>
-        <details class="save">
-          <summary>Save as scenario</summary>
-          <p class="hint">Saves the current URL, network responses and live state. <b>Copy link</b> shares it as is; <b>Download JSON</b> writes a file for your scenarios folder that keeps only what differs from the base.</p>
+        <div role="tabpanel" id="pane-switch" aria-labelledby="tab-switch">
+          <input type="search" placeholder="Filter by name, description or tag" aria-label="Filter scenarios">
+          <ul class="list"></ul>
+        </div>
+        <div role="tabpanel" id="pane-edit" aria-labelledby="tab-edit" hidden>
+          <p class="hint">The scenario is what the app is served; live state is what it holds right now.</p>
+          <textarea class="scenario-json" spellcheck="false" aria-label="Scenario JSON"></textarea>
+          <div class="row"><button class="primary" data-act="apply">Apply edited scenario</button></div>
+          <section class="live" aria-label="Live state"></section>
+        </div>
+        <div role="tabpanel" id="pane-save" aria-labelledby="tab-save" hidden>
+          <p class="hint">Saves what's on screen now: URL, network responses and live state.</p>
           <label>Name <input name="save-name" placeholder="e.g. checkout-card-declined" aria-label="Scenario name"></label>
           <label>Description <input name="save-description" aria-label="Scenario description"></label>
-          <label>Ready: what's on screen once this state has rendered <input name="save-ready" placeholder='Use Mark ready, or type text="…"' aria-label="Ready selector"></label>
-          <p class="ready-check" role="status"></p>
-          <div class="row">
-            <button type="button" data-act="mark-ready">Mark ready</button>
-            <button type="button" data-act="clear-ready">Clear</button>
+          <label for="save-ready">Ready: what shows once this state has rendered</label>
+          <div class="field">
+            <input id="save-ready" name="save-ready" placeholder='Pick it, or type text="…"' aria-label="Ready selector">
+            <button type="button" class="icon" data-act="mark-ready" aria-pressed="false" aria-label="Mark ready" title="Pick it on the page">${ICON.pick}</button>
           </div>
+          <p class="ready-check" role="status"></p>
           <div class="candidates" role="group" aria-label="Suggested ready selectors"></div>
-          <div class="pick-box" hidden><span></span></div>
           <label>Extends
             <select name="save-base" aria-label="Base scenario to extend"></select>
           </label>
           <div class="row">
-            <button data-act="save-project" hidden>Save to project</button>
+            <button class="primary" data-act="save-project" hidden>Save to project</button>
+            <button class="primary" data-act="save-json">Download JSON</button>
             <button data-act="save-link">Copy link</button>
-            <button data-act="save-json">Download JSON</button>
           </div>
           <p class="save-status" role="status"></p>
           <input class="saved" readonly aria-label="Saved scenario link" hidden>
-        </details>
-        <details class="edit">
-          <summary>Edit current scenario</summary>
-          <textarea spellcheck="false" aria-label="Scenario JSON"></textarea>
-          <button data-act="apply">Apply edited scenario</button>
-        </details>
-        <footer>
-          <button data-act="copy">Copy link</button>
-          <a class="reset">Reset</a>
-        </footer>
+        </div>
       </section>`;
 
     const find = <T extends Element>(selector: string, type: new() => T): T => {
@@ -144,6 +146,33 @@ class ScenarioPanel extends Base {
 
       return el;
     };
+
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role=tab]')];
+
+    const showTab = (name: string) => {
+      for (const tab of tabs) {
+        const selected = tab.dataset.tab === name;
+        tab.setAttribute('aria-selected', String(selected));
+        tab.tabIndex = selected ? 0 : -1;
+        find(`#pane-${tab.dataset.tab}`, HTMLDivElement).hidden = !selected;
+      }
+
+      if (name === 'save') onSaveShown();
+    };
+
+    for (const [i, tab] of tabs.entries()) {
+      tab.onclick = () => showTab(tab.dataset.tab!);
+
+      // Arrow keys move between tabs, as the ARIA tabs pattern expects.
+      tab.onkeydown = (e) => {
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+
+        if (!step) return;
+        const next = tabs[(i + step + tabs.length) % tabs.length];
+        next.focus();
+        showTab(next.dataset.tab!);
+      };
+    }
 
     const toggle = find('.toggle', HTMLButtonElement);
     const drawer = find('#drawer', HTMLElement);
@@ -182,9 +211,6 @@ class ScenarioPanel extends Base {
             ${s.description ? `<span>${esc(s.description)}</span>` : ''}
             ${s.tags?.length ? `<small>${s.tags.map(esc).join(' · ')}</small>` : ''}
           </a>
-          <button class="add" aria-label="Combine ${
-          esc(s.name)
-        } with the current scenario" title="Combine with the current scenario">+</button>
         </li>`,
       )
       .join('');
@@ -195,13 +221,6 @@ class ScenarioPanel extends Base {
         e.preventDefault();
         void run(() => session.open(name))();
       };
-
-      li.querySelector<HTMLButtonElement>('.add')!.onclick = run(() => {
-        const names = new Set((session.active?.name ?? '').split(',').filter(Boolean));
-        names.add(name);
-
-        return session.open([...names].join(','));
-      });
     });
     const filter = find('input[type=search]', HTMLInputElement);
     filter.oninput = () => {
@@ -265,7 +284,8 @@ class ScenarioPanel extends Base {
     const saveStatus = find('.save-status', HTMLParagraphElement);
     const candidates = find('.candidates', HTMLElement);
     const saved = find('.saved', HTMLInputElement);
-    const saveDetails = find('.save', HTMLDetailsElement);
+    const savePane = find('#pane-save', HTMLDivElement);
+    const saveJson = find('[data-act=save-json]', HTMLButtonElement);
     const markReadyBtn = find('[data-act=mark-ready]', HTMLButtonElement);
 
     const fillBaseOptions = () => {
@@ -302,21 +322,19 @@ class ScenarioPanel extends Base {
       });
     };
 
-    saveDetails.ontoggle = () => {
-      if (saveDetails.open) {
-        fillBaseOptions();
-        // Offer, don't fill: the top suggestion is often chrome present in every state.
-        renderCandidates();
-        updateReadyCheck();
-        void probeSaveEndpoint();
-      }
+    const onSaveShown = () => {
+      fillBaseOptions();
+      // Offer, don't fill: the top suggestion is often chrome present in every state.
+      renderCandidates();
+      updateReadyCheck();
+      void probeSaveEndpoint();
     };
 
     const stopPickMode = () => {
       this.stopPick?.();
       this.stopPick = undefined;
       markReadyBtn.setAttribute('aria-pressed', 'false');
-      markReadyBtn.textContent = 'Mark ready';
+      updateReadyCheck();
     };
 
     const pickBox = find('.pick-box', HTMLDivElement);
@@ -353,8 +371,7 @@ class ScenarioPanel extends Base {
     };
 
     const READY_MESSAGES = {
-      empty:
-        "No ready selector: the link still works, but shoot and tests won't wait for this state to render.",
+      empty: 'Optional: tests and shoot wait for it before checking this state.',
       none: 'No match on this page: tests would time out waiting for it.',
       unchecked: "Can't check this kind of selector here; Playwright still can.",
     };
@@ -381,6 +398,7 @@ class ScenarioPanel extends Base {
 
       readyCheck.dataset.tone = tone;
       readyCheck.textContent = message;
+      candidates.hidden = !!value;
 
       // While the field has focus, show which element tests will wait on.
       if (this.shadowRoot?.activeElement === saveReady && !this.stopPick) outline(readyMatch, 'ready');
@@ -398,7 +416,8 @@ class ScenarioPanel extends Base {
     const startPickMode = () => {
       stopPickMode();
       markReadyBtn.setAttribute('aria-pressed', 'true');
-      markReadyBtn.textContent = 'Click the UI… (Esc cancels)';
+      readyCheck.dataset.tone = 'muted';
+      readyCheck.textContent = 'Click what shows once this state has rendered. Esc cancels.';
       document.documentElement.style.cursor = 'crosshair';
 
       const onMove = (e: MouseEvent) => {
@@ -464,11 +483,6 @@ class ScenarioPanel extends Base {
       else startPickMode();
     };
 
-    find('[data-act=clear-ready]', HTMLButtonElement).onclick = () => {
-      saveReady.value = '';
-      updateReadyCheck();
-    };
-
     const capture = () => {
       const baseName = saveBase.value;
       const base = baseName ? catalog.get(baseName) : undefined;
@@ -498,6 +512,8 @@ class ScenarioPanel extends Base {
           saveUrl = probed.data.url ?? SAVE_ENDPOINT;
           saveProject.textContent = `Save to ${probed.data.dir}`;
           saveProject.hidden = false;
+          // One primary action: the file goes straight into the project.
+          saveJson.className = 'quiet';
         })
         .catch(() => {});
 
@@ -536,6 +552,9 @@ class ScenarioPanel extends Base {
       await saveToProject(false);
     });
 
+    // A shared inline link usually arrives to be tweaked, so it opens on its JSON.
+    showTab(readInline(location.hash) ? 'edit' : 'switch');
+
     try {
       const flash = FlashSchema.safeParse(JSON.parse(sessionStorage.getItem(FLASH_KEY) ?? 'null')).data;
       sessionStorage.removeItem(FLASH_KEY);
@@ -543,7 +562,7 @@ class ScenarioPanel extends Base {
       // Only right after a save; a stale one would describe some other session.
       if (flash && Date.now() - flash.at < 10_000) {
         saveStatus.textContent = flash.message;
-        saveDetails.open = true;
+        showTab('save');
       }
     } catch {
       // Storage blocked or corrupt: nothing to show.
@@ -559,7 +578,7 @@ class ScenarioPanel extends Base {
       await navigator.clipboard?.writeText(link).catch(() => {});
       updateReadyCheck();
     });
-    find('[data-act=save-json]', HTMLButtonElement).onclick = run(async () => {
+    saveJson.onclick = run(async () => {
       await session.settleRecording();
       const { forCatalog } = capture();
       const a = document.createElement('a');
@@ -572,20 +591,11 @@ class ScenarioPanel extends Base {
       updateReadyCheck();
     });
 
-    const editor = find('.edit textarea', HTMLTextAreaElement);
-
-    if (readInline(location.hash)) find('.edit', HTMLDetailsElement).open = true;
+    const editor = find('.scenario-json', HTMLTextAreaElement);
     find('[data-act=apply]', HTMLButtonElement).onclick = run(() =>
       session.openInline(parseScenario(JSON.parse(editor.value)))
     );
 
-    find('[data-act=copy]', HTMLButtonElement).onclick = run(async () => {
-      try {
-        await navigator.clipboard.writeText(location.href);
-      } catch {
-        prompt('Copy this link', location.href);
-      }
-    });
     // An absolute same-origin URL: a path starting with "//" must not read as another host.
     const reset = new URL(location.href);
     reset.search = '';
@@ -653,7 +663,7 @@ class ScenarioPanel extends Base {
       renderLive();
 
       // The app re-rendered: the ready selector may match now, or no longer.
-      if (saveDetails.open) updateReadyCheck();
+      if (!savePane.hidden) updateReadyCheck();
     };
 
     this.render = render;
@@ -661,6 +671,15 @@ class ScenarioPanel extends Base {
     this.unsubscribe = session.onChange(render);
   }
 }
+
+const svg = (paths: string) =>
+  `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths}</svg>`;
+
+const ICON = {
+  close: svg('<path d="M4 4l8 8M12 4l-8 8"/>'),
+  reset: svg('<path d="M2.5 8a5.5 5.5 0 1 0 1.7-4"/><path d="M2.5 2.5V6H6"/>'),
+  pick: svg('<circle cx="8" cy="8" r="4.5"/><path d="M8 1v3M8 12v3M1 8h3M12 8h3"/>'),
+};
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -700,10 +719,23 @@ const STYLES = `
     background: var(--bg); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 40px #0004;
   }
   #drawer[hidden] { display: none; }
-  header, footer, .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .row { justify-content: flex-start; margin-top: 8px; flex-wrap: wrap; }
-  h2 { margin: 0; font-size: 16px; font-weight: 700; }
-  .close { border: 0; background: none; font-size: 22px; line-height: 1; padding: 4px 8px; border-radius: 6px; }
+  header, .row, .field { display: flex; align-items: center; gap: 8px; }
+  header { gap: 2px; margin: -4px -4px 8px; }
+  .row { margin-top: 10px; flex-wrap: wrap; }
+  [role=tablist] { display: flex; gap: 2px; flex: 1; }
+  [role=tab] {
+    padding: 6px 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 600;
+  }
+  [role=tab]:hover { background: var(--hover); color: var(--fg); }
+  [role=tab][aria-selected=true] { background: var(--hover); color: var(--fg); }
+  [role=tabpanel][hidden] { display: none; }
+  .icon {
+    display: inline-grid; place-items: center; width: 32px; height: 32px; flex: none;
+    border: 0; border-radius: 8px; background: none; color: var(--muted);
+  }
+  .icon:hover { background: var(--hover); color: var(--fg); }
+  .field input { flex: 1; }
+  .field .icon { border: 1px solid var(--line); height: 36px; width: 36px; }
   input, textarea, select {
     width: 100%; margin: 6px 0; padding: 8px 10px; border: 1px solid var(--line);
     border-radius: 8px; background: var(--bg);
@@ -713,6 +745,7 @@ const STYLES = `
   ul { list-style: none; margin: 0; padding: 0; }
   li[hidden] { display: none; }
   .list li { display: flex; align-items: stretch; gap: 4px; }
+  .list { margin-top: 4px; }
   .list a {
     flex: 1; min-width: 0; overflow-wrap: anywhere; display: flex; flex-direction: column; gap: 2px;
     position: relative; padding: 8px 10px 8px 32px; border-radius: 8px; text-decoration: none;
@@ -725,20 +758,19 @@ const STYLES = `
   }
   .list span { color: var(--muted); }
   .list small { color: var(--muted); font-size: 12px; }
-  .add { width: 32px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-size: 18px; }
-  .add:hover { background: var(--hover); color: var(--fg); }
   details { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
   summary { cursor: pointer; font-weight: 600; }
   code { font: 12px ui-monospace, monospace; }
   textarea { height: 200px; font: 12px/1.45 ui-monospace, monospace; resize: vertical; }
   .hint { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
   .error { color: var(--danger); white-space: pre-wrap; margin: 8px 0; font-size: 12px; }
-  .error:empty, .unmocked:empty, .candidates:empty { display: none; }
+  .error:empty, .unmocked:empty, .candidates:empty, .candidates[hidden] { display: none; }
   .ready-check, .save-status { color: var(--muted); font-size: 12px; margin: 2px 0 0; }
+  .save-status { color: var(--accent); }
   .ready-check[data-tone=ok] { color: var(--accent); }
   .ready-check[data-tone=bad] { color: var(--danger); }
   .save-status:empty { display: none; }
-  details button[hidden] { display: none; }
+  button[hidden] { display: none; }
   .candidates { margin-top: 6px; }
   .pick-box {
     position: fixed; pointer-events: none; box-sizing: border-box;
@@ -757,10 +789,10 @@ const STYLES = `
   .unmocked ul { padding-left: 16px; list-style: disc; }
   .unmocked code { overflow-wrap: anywhere; }
   em { font-style: normal; color: var(--danger); font-weight: 400; }
-  details button, footer button {
+  [role=tabpanel] button:not(.icon) {
     padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--hover);
   }
+  [role=tabpanel] button.quiet { order: 1; border: 0; background: none; padding: 6px 4px; color: var(--muted); text-decoration: underline; }
+  [role=tabpanel] button.primary { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
   button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  footer { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
-  footer a { color: var(--accent); }
 `;
