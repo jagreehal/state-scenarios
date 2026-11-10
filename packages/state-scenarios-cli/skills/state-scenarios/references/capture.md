@@ -20,10 +20,16 @@ With the `state-scenarios` MCP server registered (topic `mcp`):
 ## From the panel (people)
 
 1. Open the app with `?scenario-record` and click through to the state.
-2. Panel → **Save as scenario** → **Mark ready** and click distinctive UI (or pick a suggestion).
-   The line under Ready says whether it matches.
+2. Panel → **Save** tab → name it, then the crosshair beside **Ready** and click distinctive UI (or
+   pick a suggestion). The line under Ready says whether it matches.
 3. Choose **Extends** (`default` when present) → **Save to src/scenarios** (Vite plugin or Next.js
-   route), or **Download JSON**. **Copy link** shares a self-contained snapshot instead.
+   route), or **Download JSON** without either. **Copy link** shares a self-contained snapshot instead.
+
+## From a HAR file
+
+`npx state-scenarios from-har src/scenarios session.har --name orders-slow --path /orders` turns
+the HAR's JSON responses into `src/scenarios/orders-slow.json`, redacted like recordings. Paths
+start with `*`, so it replays on localhost. Read the file for names and emails, then set `ready`.
 
 ## From code
 

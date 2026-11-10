@@ -14,6 +14,7 @@ import {
   STRICT_PARAM,
 } from './link.js';
 import { createRecorder } from './record.js';
+import type { RequestCheck } from './request-checks.js';
 import {
   type Json,
   type NetworkEntry,
@@ -268,6 +269,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   const selection = select(url, options.defaultScenario, options.allowLinks ?? LOOPBACK.has(url.hostname));
   const unhandled: string[] = [];
   globalThis.stateScenariosUnhandled = unhandled;
+  const suspicious: string[] = [];
+  globalThis.stateScenariosSuspicious = suspicious;
 
   const connected = new Map<string, Connected>();
   const listeners = new Set<() => void>();
@@ -372,7 +375,11 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
   // MSW loads only when a scenario mocks the network or strict mode needs a catch-all.
   const setNetwork = async (resolved: Scenario) => {
     if (!mocks(resolved) && !session.strict && !session.recording && !worker) return;
-    const [{ isCode, toHandlers }, msw] = await Promise.all([import('./network.js'), import('msw')]);
+
+    const [{ isCode, suspiciousUrl, toHandlers }, msw] = await Promise.all([
+      import('./network.js'),
+      import('msw'),
+    ]);
 
     if (destroyed) return;
 
@@ -402,14 +409,37 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
     });
 
     // Named and app handlers are written for the API, so a broad one such as `*/orders/:id` would
-    // also answer a page load or a lazy chunk; those always pass.
-    const code = msw.http.all(
-      '*',
-      ({ request }) => request.mode === 'navigate' || isCode(request.url) ? msw.passthrough() : undefined,
-    );
+    // also answer a page load or a lazy chunk; those always pass. Every other request is checked
+    // for a URL built from a missing value, whichever handler answers it.
+    const code = msw.http.all('*', ({ request }) => {
+      if (request.mode === 'navigate' || isCode(request.url)) return msw.passthrough();
+
+      const why = isAsset(request.url) || matches(options.ignore, request.url)
+          || new URL(request.url).pathname.startsWith(SAVE_ENDPOINT)
+        ? undefined
+        : suspiciousUrl(request.url);
+
+      if (why) {
+        const label = `${request.method} ${request.url}: ${why}`;
+        suspicious.push(label);
+        console.warn(`[state-scenarios] suspicious request ${label}`);
+        emit();
+      }
+
+      return undefined;
+    });
+
+    const checks: RequestCheck[] = [];
+    globalThis.stateScenariosChecks = checks;
 
     // Scenario first, then its named handlers, then the app's own, then the catch-all.
-    const handlers = [code, ...toHandlers(resolved.network), ...named(resolved), ...appHandlers, fallback];
+    const handlers = [
+      code,
+      ...toHandlers(resolved.network, checks),
+      ...named(resolved),
+      ...appHandlers,
+      fallback,
+    ];
 
     if (worker) {
       worker.resetHandlers(...handlers);
@@ -522,6 +552,7 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
 
     if (destroyed) return;
     unhandled.splice(0);
+    suspicious.splice(0);
     activate(next, resolved, inline);
     const at = new URL(href);
     replaceUrl(at);
@@ -629,6 +660,8 @@ export async function startScenarios(options: StartOptions): Promise<ScenarioSes
       if (current === session) current = null;
 
       if (globalThis.stateScenariosUnhandled === unhandled) globalThis.stateScenariosUnhandled = undefined;
+
+      if (globalThis.stateScenariosSuspicious === suspicious) globalThis.stateScenariosSuspicious = undefined;
 
       if (globalThis.stateScenariosPage === hooks) globalThis.stateScenariosPage = undefined;
 

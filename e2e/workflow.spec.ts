@@ -31,14 +31,18 @@ test('an explicit ?scenario-strict wins over a stored non-strict selection', asy
 });
 
 test('scenarios combine: later names win', async ({ page }) => {
-  await openScenario(page, 'chewbacca');
+  await openScenario(page, 'chewbacca,search-no-results');
   await panel(page);
-  await page.getByRole('button', { name: 'Combine search-no-results with the current scenario' }).click();
+  await expect(page.getByRole('link', { name: /^chewbacca/ })).toHaveAttribute('aria-current', 'true');
+  await expect(page.getByRole('link', { name: /^search-no-results/ })).toHaveAttribute(
+    'aria-current',
+    'true',
+  );
   await expect(page.locator('html')).toHaveAttribute('data-scenario', 'chewbacca,search-no-results');
   await expect(page.getByRole('searchbox', { name: 'Search countries' })).toHaveValue('zzz');
 
   // A combined scenario can be edited and applied as it is.
-  await page.getByText('Edit current scenario').click();
+  await page.getByRole('tab', { name: 'Edit' }).click();
   await page.getByRole('button', { name: 'Apply edited scenario' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'kebab-case' })).toHaveCount(0);
   await expect(page.locator('html')).toHaveAttribute('data-scenario', 'chewbacca,search-no-results');
@@ -49,6 +53,7 @@ test('inspect live state, edit it, save it as a scenario, share the link', async
   await panel(page);
 
   // Inspect: the cache editor follows the running app.
+  await page.getByRole('tab', { name: 'Edit' }).click();
   await page.getByText('Live state: tanstack-query').click();
   const live = page.getByRole('textbox', { name: 'Live state tanstack-query' });
   await expect(live).toHaveValue(/"Aruba"/);
@@ -73,7 +78,7 @@ test('inspect live state, edit it, save it as a scenario, share the link', async
   await page.getByRole('searchbox', { name: 'Search countries' }).fill('Atl');
 
   // Save: name it, get a self-contained link.
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('atlantis-search');
   await page.getByRole('button', { name: 'Copy link' }).first().click();
   const link = await page.getByRole('textbox', { name: 'Saved scenario link' }).inputValue();
@@ -95,7 +100,7 @@ test('inspect live state, edit it, save it as a scenario, share the link', async
 test('save as scenario rejects invalid names and rule violations', async ({ page }) => {
   await openScenario(page, 'default');
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('Not Kebab');
   await page.getByRole('button', { name: 'Download JSON' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'kebab-case' })).toBeVisible();
@@ -104,7 +109,7 @@ test('save as scenario rejects invalid names and rule violations', async ({ page
 test('mark ready and download a catalog file that extends default', async ({ page }) => {
   await openScenario(page, 'empty');
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('captured-empty');
   await page.getByRole('button', { name: 'Mark ready' }).click();
   await page.getByRole('main').getByText('No countries match').click();
@@ -131,7 +136,7 @@ test('mark ready and download a catalog file that extends default', async ({ pag
 test('mark ready stays on when the click has no selector, shows why, and Esc cancels', async ({ page }) => {
   await openScenario(page, 'empty');
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('button', { name: 'Mark ready' }).click();
 
   const main = page.getByRole('main');
@@ -142,7 +147,7 @@ test('mark ready stays on when the click has no selector, shows why, and Esc can
   await page.mouse.move(box.x + 5, box.y + box.height - 5);
   await page.mouse.click(box.x + 5, box.y + box.height - 5);
   await expect(page.getByText('No selector here')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Click the UI/ })).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Mark ready' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('textbox', { name: 'Ready selector' })).toHaveValue('');
 
   await page.keyboard.press('Escape');
@@ -153,12 +158,12 @@ test('mark ready stays on when the click has no selector, shows why, and Esc can
 test('the ready field says what the selector matches, agreeing with Playwright', async ({ page }) => {
   await openScenario(page, 'empty');
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
 
   const ready = page.getByRole('textbox', { name: 'Ready selector' });
   const status = page.locator('scenario-panel .ready-check');
 
-  await expect(status).toContainText('No ready selector');
+  await expect(status).toContainText('Optional');
 
   for (
     const [selector, expected] of [
@@ -188,7 +193,7 @@ test('save to project writes the catalog file, and asks before replacing it', as
   try {
     await openScenario(page, 'empty');
     await panel(page);
-    await page.getByText('Save as scenario').click();
+    await page.getByRole('tab', { name: 'Save' }).click();
     await page.getByRole('textbox', { name: 'Scenario name' }).fill(name);
     await page.getByRole('textbox', { name: 'Ready selector' }).fill('role=heading[name="0 countries"]');
 
@@ -243,7 +248,7 @@ test('switching to a never-ending loading scenario still commits; the latest swi
 test('capturing a refreshing cache keeps it refreshing', async ({ page, context }) => {
   await openScenario(page, 'stale-while-refreshing');
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('captured-refresh');
   await page.getByRole('button', { name: 'Copy link' }).first().click();
   const link = await page.getByRole('textbox', { name: 'Saved scenario link' }).inputValue();
@@ -271,7 +276,7 @@ test('a switch reloads when the app URL differs, so URL-driven UI resets', async
 test('a rejected switch leaves fixtures and screen untouched', async ({ page }) => {
   await openScenario(page, 'default');
   await panel(page);
-  await page.getByText('Edit current scenario').click();
+  await page.getByRole('tab', { name: 'Edit' }).click();
   await page.getByRole('textbox', { name: 'Scenario JSON' }).fill(
     JSON.stringify({
       name: 'bad-cache',
@@ -297,6 +302,7 @@ test('reopening a preset restarts it: sequences replay and edited data is refetc
 
   await page.getByRole('link', { name: /^default/ }).click();
   await expect(heading(page)).toHaveText('248 countries');
+  await page.getByRole('tab', { name: 'Edit' }).click();
   await page.getByText('Live state: tanstack-query').click();
   const atlantis = { name: 'Atlantis', cca2: 'XA', capital: 'Poseidonia', region: 'Ocean', languages: {} };
   await page.getByRole('textbox', { name: 'Live state tanstack-query' }).fill(
@@ -304,6 +310,7 @@ test('reopening a preset restarts it: sequences replay and edited data is refetc
   );
   await page.getByRole('button', { name: 'Apply', exact: true }).click();
   await expect(heading(page)).toHaveText('1 country');
+  await page.getByRole('tab', { name: 'Scenarios' }).click();
   await page.getByRole('link', { name: /^default/ }).click();
   await expect(heading(page)).toHaveText('248 countries');
 });

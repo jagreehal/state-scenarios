@@ -32,6 +32,7 @@ const ResponseSchema = z
   .refine((r) => r.body === undefined || r.text === undefined, {
     message: 'Provide "body" (JSON) or "text", not both',
   });
+// `body` may hold `{ "$repeat": n, "item": … }` to generate n items; see `expandBody`.
 
 const NetworkEntrySchema = z
   .object({
@@ -45,6 +46,18 @@ const NetworkEntrySchema = z
     sequence: z.array(ResponseSchema).min(1).optional(),
     /** Drop the inherited entry with the same method, path and query. */
     remove: z.literal(true).optional(),
+    /**
+     * What the app must send to this endpoint. Unlike `query`, which picks the entry, a request
+     * that differs is still answered and reported as a mismatch; an entry never called is reported
+     * as not sent. `query` values must match (null: the param must be absent); `body` matches
+     * when every key it lists is equal in the request's JSON body (arrays match item by item).
+     */
+    expect: z
+      .strictObject({
+        query: z.record(z.string(), z.string().nullable()).optional(),
+        body: JsonSchema.optional(),
+      })
+      .optional(),
   })
   .refine((e) => [e.response, e.sequence, e.remove].filter(Boolean).length === 1, {
     message: 'Provide exactly one of "response", "sequence" or "remove"',

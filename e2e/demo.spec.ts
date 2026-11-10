@@ -1,5 +1,11 @@
 import { expect, type Page, test } from '@playwright/test';
-import { openInlineScenario, openScenario, unhandledRequests } from 'state-scenarios/playwright';
+import {
+  openInlineScenario,
+  openScenario,
+  requestMismatches,
+  suspiciousRequests,
+  unhandledRequests,
+} from 'state-scenarios/playwright';
 
 const heading = (page: Page) => page.getByRole('main').getByRole('heading', { level: 2 });
 
@@ -107,7 +113,7 @@ test('panel: switch scenario, then edit and share a flattened snapshot', async (
   await expect(page).toHaveURL(/scenario=chewbacca/);
   await expect(page.getByRole('heading', { name: 'Kashyyyk' })).toBeVisible();
 
-  await page.getByText('Edit current scenario').click();
+  await page.getByRole('tab', { name: 'Edit' }).click();
   const json = page.getByRole('textbox', { name: 'Scenario JSON' });
   await json.fill(JSON.stringify({ name: 'edited', extends: 'chewbacca', url: { q: 'Kash' } }));
   await page.getByRole('button', { name: 'Apply edited scenario' }).click();
@@ -153,4 +159,34 @@ for (const handle of [true, false]) {
 test('unknown scenario names the known ones', async ({ page }) => {
   await page.goto('/?scenario=nope');
   await expect(page.locator('.fatal')).toContainText('Unknown scenario "nope". Known scenarios: chewbacca');
+});
+
+test('strict: $repeat generates rows, expect and URL checks report what the app sent', async ({ page }) => {
+  await openInlineScenario(page, {
+    name: 'request-checks',
+    network: [
+      {
+        path: '/api/countries',
+        expect: { query: { fields: 'name' } },
+        response: {
+          body: {
+            $repeat: 30,
+            item: { name: 'Land {{i}}', cca2: 'L{{i}}', capital: 'C', region: 'R', languages: {} },
+          },
+        },
+      },
+      { method: 'POST', path: '/api/audit', expect: { body: { seen: true } }, response: { status: 204 } },
+    ],
+    ready: 'text=30 countries',
+  });
+
+  expect(await requestMismatches(page)).toEqual([
+    expect.stringMatching(/^GET .*\/api\/countries: query fields: expected name, got absent$/),
+    'POST /api/audit: never sent',
+  ]);
+
+  await page.evaluate(() => fetch('/api/users//orders').catch(() => {}));
+  await expect.poll(() => suspiciousRequests(page)).toEqual([
+    expect.stringMatching(/^GET .*\/api\/users\/\/orders: empty path segment/),
+  ]);
 });

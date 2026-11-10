@@ -45,8 +45,7 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
   click. `--cursor-color <css>` (default `#ff2d55`) recolours it; `--cursor <file.svg>` draws your
   own, with its top-left corner at the mouse.
 - The video starts once the scenario is ready and holds the last frame for `--hold` ms (default
-  800), so there's no need for a `waitForTimeout` at the end of steps. Uncropped
-  `--format webm` is the exception: it keeps the page load, and needs no ffmpeg.
+  800), so there's no need for a `waitForTimeout` at the end of steps.
 - `--format mp4` (default) plays in every browser and phone at a fraction of a GIF's size; use it
   on websites. `--format gif` for READMEs and other image-only places. `--element` crops: the
   element is scrolled into view first, and one larger than the viewport is cut to the visible part
@@ -55,7 +54,8 @@ npx state-scenarios record src/scenarios --base-url http://localhost:5173 --step
   12); both cut file size.
 - Video records at viewport size, so use a larger `--viewport` for sharper video; `--scale`
   affects screenshots only.
-- MP4, GIF, `--element`, `--fps` and `--width` need ffmpeg: `npm i -D @ffmpeg-installer/ffmpeg` in the project (macOS, Windows, Linux), `FFMPEG_PATH`, or `PATH`. WebM without them doesn't.
+- Video comes from Chrome's own recorder at 60fps: it needs Chromium 153+ (`@playwright/test` 1.63+),
+  otherwise `record` stops with `BROWSER_MISSING`. Every format needs ffmpeg: `npm i -D @ffmpeg-installer/ffmpeg` in the project (macOS, Windows, Linux), `FFMPEG_PATH`, or `PATH`.
 - Each video gets a `<name>.video.json` manifest: size, length, description and clicks; a field
   taking focus is a point with `kind: 'focus'`, so editors can hold on it while it's typed into. See
   [Videos in Remotion](#videos-in-remotion).

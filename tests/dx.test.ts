@@ -15,6 +15,7 @@ import {
   ffmpegPath,
   outputSize,
   videoManifest,
+  videoSize,
   visibleCrop,
 } from '../packages/state-scenarios-cli/src/record.ts';
 import { createCatalog, diffScenario } from '../packages/state-scenarios/src/catalog.ts';
@@ -84,33 +85,44 @@ describe('ffmpegPath', () => {
 });
 
 describe('ffmpegArgs', () => {
-  it('trims, crops to even sizes and encodes MP4 that plays everywhere', () => {
+  it('crops to even sizes and encodes MP4 that plays everywhere', () => {
     const args = ffmpegArgs({
-      input: 'in.webm',
+      input: 'in.mp4',
       output: 'out.mp4',
       format: 'mp4',
-      start: 1.234,
+      size: { width: 1280, height: 720 },
+      duration: 1.5,
       crop: { x: 10.4, y: 20.6, width: 301, height: 199.5 },
     });
 
-    expect(args).toEqual(expect.arrayContaining(['-ss', '1.23', '-vf', 'crop=300:198:10:21', 'yuv420p']));
+    expect(args).toEqual(expect.arrayContaining(['-t', '1.500', 'yuv420p']));
+    expect(args[args.indexOf('-vf') + 1]).toBe(
+      'scale=1280:720,crop=300:198:10:21,fps=60,tpad=stop_mode=clone:stop_duration=1.500',
+    );
   });
 
   it('builds a palette for GIFs', () => {
-    const args = ffmpegArgs({ input: 'in.webm', output: 'out.gif', format: 'gif', start: 0 });
+    const args = ffmpegArgs({
+      input: 'in.mp4',
+      output: 'out.gif',
+      format: 'gif',
+      size: { width: 1280, height: 720 },
+      duration: 2,
+    });
 
     expect(args[args.indexOf('-vf') + 1]).toBe(
-      'fps=12,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer',
+      'scale=1280:720,fps=12,tpad=stop_mode=clone:stop_duration=2.000,split[a][b];[a]palettegen=stats_mode=diff[p];[b][p]paletteuse=dither=bayer',
     );
   });
 
   it('sets the frame rate and downscales to an even width, never above the input, after the crop', () => {
     const vf = (format: 'gif' | 'mp4') => {
       const args = ffmpegArgs({
-        input: 'in.webm',
+        input: 'in.mp4',
         output: `out.${format}`,
         format,
-        start: 0,
+        size: { width: 1280, height: 800 },
+        duration: 2,
         crop: { x: 0, y: 0, width: 1200, height: 800 },
         fps: 10,
         width: 901,
@@ -119,9 +131,11 @@ describe('ffmpegArgs', () => {
       return args[args.indexOf('-vf') + 1];
     };
 
-    expect(vf('mp4')).toBe("crop=1200:800:0:0,fps=10,scale='trunc(min(901,iw)/2)*2':-2:flags=lanczos");
+    expect(vf('mp4')).toBe(
+      "scale=1280:800,crop=1200:800:0:0,fps=10,tpad=stop_mode=clone:stop_duration=2.000,scale='trunc(min(901,iw)/2)*2':-2:flags=lanczos",
+    );
     expect(vf('gif')).toMatch(
-      /^crop=1200:800:0:0,fps=10,scale='trunc\(min\(901,iw\)\/2\)\*2':-2:flags=lanczos,split/,
+      /^scale=1280:800,crop=1200:800:0:0,fps=10,tpad=stop_mode=clone:stop_duration=2\.000,scale='trunc\(min\(901,iw\)\/2\)\*2':-2:flags=lanczos,split/,
     );
   });
 });
@@ -298,6 +312,8 @@ describe('failure pages', () => {
     codes: ['READY_TIMEOUT', 'UNMOCKED_REQUEST'],
     link: 'http://localhost:5173/orders?scenario=orders-empty&scenario-strict',
     unhandled: ['GET http://localhost:5173/api/orders?page=2', 'POST https://api.other.test/v1/events'],
+    mismatches: [],
+    suspicious: [],
     pageErrors: [],
     consoleErrors: [],
     error: 'Timeout 10000ms exceeded',
@@ -389,6 +405,10 @@ describe('error codes', () => {
     expect(new CliError('INVALID_ARGUMENT', '').exitCode).toBe(2);
     expect(new CliError('DEV_SERVER_DOWN', '').exitCode).toBe(3);
   });
+});
+
+it('saves video at the viewport rounded down to even sizes', () => {
+  expect(videoSize({ width: 1001, height: 701 })).toEqual({ width: 1000, height: 700 });
 });
 
 describe('visibleCrop', () => {

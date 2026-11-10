@@ -1,8 +1,13 @@
+import type { RequestCheck } from './request-checks.js';
 import type { Scenario } from './schema.js';
 
 declare global {
   /** Requests the active scenario didn't cover, for tests and agents (see `unhandledRequests`). */
   var stateScenariosUnhandled: string[] | undefined;
+  /** Requests whose URL looks built from a missing value (see `suspiciousRequests`). */
+  var stateScenariosSuspicious: string[] | undefined;
+  /** What the active scenario's `expect` entries saw (see `requestMismatches`). */
+  var stateScenariosChecks: RequestCheck[] | undefined;
 }
 
 export const PARAM = 'scenario';

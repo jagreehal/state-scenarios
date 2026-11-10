@@ -21,6 +21,7 @@ for (const path of ['/', '/xstate']) {
     expect(await page.evaluate(() => window.sameDocument)).toBe(true);
 
     // The live editor follows the app's own state…
+    await page.getByRole('tab', { name: 'Edit' }).click();
     await page.getByText('Live state: page').click();
     const live = page.getByRole('textbox', { name: 'Live state page' });
     await expect(live).toHaveValue(/"Rwookrrorro"/);
@@ -37,7 +38,7 @@ for (const path of ['/', '/xstate']) {
 test('page presets can be saved and shared as links', async ({ page, context }) => {
   await openScenario(page, 'five-countries', { strict: false });
   await panel(page);
-  await page.getByText('Save as scenario').click();
+  await page.getByRole('tab', { name: 'Save' }).click();
   await page.getByRole('textbox', { name: 'Scenario name' }).fill('my-five');
   await page.getByRole('button', { name: 'Copy link' }).first().click();
   const link = await page.getByRole('textbox', { name: 'Saved scenario link' }).inputValue();

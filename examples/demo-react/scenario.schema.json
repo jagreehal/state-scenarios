@@ -174,6 +174,27 @@
           "remove": {
             "type": "boolean",
             "const": true
+          },
+          "expect": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "body": {
+                "$ref": "#/$defs/__schema0"
+              }
+            },
+            "additionalProperties": false
           }
         },
         "required": [

@@ -33,7 +33,7 @@ test('save to project works through the Next.js route handler', async ({ page })
   try {
     await openScenario(page, 'admin', { strict: false });
     await page.getByRole('button', { name: /^Scenario:/ }).click();
-    await page.getByText('Save as scenario').click();
+    await page.getByRole('tab', { name: 'Save' }).click();
     await page.getByRole('textbox', { name: 'Scenario name' }).fill(name);
     await page.getByRole('button', { name: /^Save to / }).click();
     await expect(page.locator('scenario-panel .save-status')).toContainText(`${name}.json`);
